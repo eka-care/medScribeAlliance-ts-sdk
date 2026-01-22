@@ -1,3 +1,4 @@
+
 # Scribe EMR Protocol SDK
 
 A TypeScript SDK for the [MedScribe Alliance Protocol](https://github.com/MedScribeAlliance/scribe-emr-protocol), providing a clean and type-safe interface for medical transcription services.
@@ -315,3 +316,4 @@ MIT
 ## Contributing
 
 Contributions are welcome! Please open an issue or submit a pull request.
+
