@@ -1,0 +1,33 @@
+{
+  "name": "scribe-standard-sdk",
+  "version": "1.0.0",
+  "description": "TypeScript SDK for the MedScribe Alliance Protocol",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "scribe",
+    "emr",
+    "medical",
+    "transcription",
+    "medscribe",
+    "protocol",
+    "typescript",
+    "sdk"
+  ],
+  "author": "",
+  "license": "MIT",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "devDependencies": {
+    "@types/node": "^25.0.10",
+    "typescript": "^5.9.3"
+  }
+}
