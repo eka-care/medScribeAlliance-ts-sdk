@@ -6,8 +6,7 @@
 import { DiscoveryAPI } from './api/discovery';
 import { SessionAPI } from './api/session';
 import { HttpClient } from './api/base';
-import { EventEmitter } from './utils/events';
-import { ValidationError } from './utils/errors';
+import { ValidationError, ScribeError } from './utils/errors';
 import {
   ScribeSDKConfig,
   RecordingOptions,
@@ -18,7 +17,9 @@ import {
   SDKEvent,
   SDKEventType,
 } from './types';
-import { SessionStatus } from './constants';
+import { SessionStatus, UploadType } from './constants';
+import { IRecorder, ChunkedRecorder, SingleRecorder } from './audio';
+import { EventEmitter } from './utils/events';
 
 export class ScribeClient {
   private config: ScribeSDKConfig;
@@ -96,17 +97,21 @@ export class ScribeClient {
     this.isInitialized = true;
   }
 
+  // ... imports
+  private recorder: IRecorder | null = null;
+
+  // ... (rest of class)
+
   /**
    * Start a recording session
-   * Creates a new session and returns session information
-   * 
-   * Note: Audio upload is handled separately (assumed to be done externally)
+   * Creates a new session and starts audio recording
    */
   async startRecording(options: RecordingOptions): Promise<CreateSessionResponse> {
     if (!this.isInitialized) {
       await this.init();
     }
 
+    // TODO: Validate schema using ajv
     this.validateRecordingOptions(options);
 
     try {
@@ -122,7 +127,7 @@ export class ScribeClient {
 
       // Create the session
       this.currentSession = await this.sessionAPI.createSession(request);
-
+      
       this.emitEvent({
         type: 'session:created',
         data: this.currentSession,
@@ -131,6 +136,21 @@ export class ScribeClient {
       if (this.config.debug) {
         console.log('[ScribeSDK] Session created:', this.currentSession);
       }
+      
+      // Initialize Recorder
+      if (options.uploadType === UploadType.SINGLE) {
+          this.recorder = new SingleRecorder(this.eventEmitter);
+      } else {
+          // Default to Chunked
+          this.recorder = new ChunkedRecorder(this.eventEmitter);
+      }
+
+      this.recorder.initialize(this.currentSession);
+      
+      // Start recording
+      // We assume options might have deviceId, or we use default
+      // If RecordingOptions doesn't have deviceId, we'll need to update the type or cast
+      await this.recorder.start((options as any).deviceId);
 
       return this.currentSession;
     } catch (error) {
@@ -144,7 +164,7 @@ export class ScribeClient {
 
   /**
    * End the current recording session
-   * Triggers processing of uploaded audio
+   * Stops audio recording, uploads remaining data, and triggers processing
    */
   async endRecording(): Promise<EndSessionResponse> {
     if (!this.currentSession) {
@@ -152,6 +172,20 @@ export class ScribeClient {
     }
 
     try {
+      // Stop recording and upload
+      if (this.recorder) {
+          const { failedUploads } = await this.recorder.stop();
+          if (failedUploads.length > 0) {
+              console.warn('Some audio files failed to upload:', failedUploads);
+              throw new ScribeError(
+                  `Failed to upload audio recordings: ${failedUploads.join(', ')}`,
+                  'upload_failed'
+              );
+          }
+          this.recorder = null;
+      }
+
+      // TODO: stop/commit api?
       const response = await this.sessionAPI.endSession(this.currentSession.session_id);
 
       this.emitEvent({
@@ -171,6 +205,24 @@ export class ScribeClient {
       });
       throw error;
     }
+  }
+
+  /**
+   * Reset the SDK (clear session, recorder, and discovery cache)
+   */
+  async reset(): Promise<void> {
+    if (this.recorder) {
+        await this.recorder.stop().catch(() => {});
+        this.recorder = null;
+    }
+    this.currentSession = null;
+    this.discoveryAPI.clearCache();
+    this.discoveryDocument = null;
+    this.isInitialized = false;
+  }
+  
+  private emitEvent(event: SDKEvent): void {
+    this.eventEmitter.emit(event);
   }
 
   /**
@@ -277,15 +329,7 @@ export class ScribeClient {
     this.currentSession = null;
   }
 
-  /**
-   * Reset the SDK (clear session and discovery cache)
-   */
-  reset(): void {
-    this.currentSession = null;
-    this.discoveryAPI.clearCache();
-    this.discoveryDocument = null;
-    this.isInitialized = false;
-  }
+
 
   // Private helper methods
 
@@ -322,7 +366,5 @@ export class ScribeClient {
     }
   }
 
-  private emitEvent(event: SDKEvent): void {
-    this.eventEmitter.emit(event);
-  }
+
 }

@@ -29,5 +29,10 @@
   "devDependencies": {
     "@types/node": "^25.0.10",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
+    "@ricky0123/vad-web": "^0.0.30",
+    "core-js": "^3.48.0"
   }
 }

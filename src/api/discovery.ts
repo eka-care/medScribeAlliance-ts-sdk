@@ -38,11 +38,6 @@ export class DiscoveryAPI {
     // Fetch discovery document
     const discovery = await this.httpClient.get<DiscoveryDocument>(discoveryUrl);
 
-    // Validate protocol
-    if (discovery.protocol !== 'medscribealliance') {
-      throw new Error(`Invalid protocol: expected 'medscribealliance', got '${discovery.protocol}'`);
-    }
-
     // Cache the discovery document
     this.cachedDiscovery = discovery;
     this.cacheTimestamp = now;

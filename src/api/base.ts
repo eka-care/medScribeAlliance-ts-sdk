@@ -32,11 +32,6 @@ export class HttpClient {
       ...config.headers,
     };
 
-    // Add API Key authentication if not a well-known endpoint
-    if (!url.includes('/.well-known/')) {
-      headers['Authorization'] = `X-API-Key ${this.apiKey}`;
-    }
-
     const requestInit: RequestInit = {
       method: config.method,
       headers,
