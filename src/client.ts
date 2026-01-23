@@ -136,6 +136,8 @@ export class ScribeClient {
       if (this.config.debug) {
         console.log('[ScribeSDK] Session created:', this.currentSession);
       }
+
+      // TODO: check microphone permission
       
       // Initialize Recorder
       if (options.uploadType === UploadType.SINGLE) {
