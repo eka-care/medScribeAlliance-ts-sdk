@@ -10,6 +10,7 @@ import {
   GetSessionStatusResponse,
 } from '../types';
 import { HttpClient } from './base';
+import { schemaValidator } from '../utils/validator';
 
 export class SessionAPI {
   private httpClient: HttpClient;
@@ -30,11 +31,14 @@ export class SessionAPI {
   /**
    * Create a new session
    * POST /sessions
-   * 
+   *
    * @param request - Session creation parameters
    * @returns Session creation response with session_id and upload_url
    */
   async createSession(request: CreateSessionRequest): Promise<CreateSessionResponse> {
+    // Validate request against schema
+    schemaValidator.validateCreateSessionRequest(request);
+
     const url = `${this.baseUrl}/sessions`;
     return this.httpClient.post<CreateSessionResponse>(url, request);
   }
@@ -42,11 +46,14 @@ export class SessionAPI {
   /**
    * Get session status
    * GET /sessions/{sessionId}
-   * 
+   *
    * @param sessionId - The session ID
    * @returns Current session status and results (if available)
    */
   async getSessionStatus(sessionId: string): Promise<GetSessionStatusResponse> {
+    // Validate session ID format
+    schemaValidator.validateSessionId(sessionId);
+
     const url = `${this.baseUrl}/sessions/${sessionId}`;
     return this.httpClient.get<GetSessionStatusResponse>(url);
   }

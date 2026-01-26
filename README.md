@@ -8,10 +8,10 @@ A TypeScript SDK for the [MedScribe Alliance Protocol](https://github.com/MedScr
 - ✅ **Protocol Compliant**: Fully implements the MedScribe Alliance Protocol specification
 - ✅ **Type-Safe**: Complete TypeScript definitions for all API interactions
 - ✅ **Auto-Discovery**: Automatic service capability discovery via well-known endpoint
+- ✅ **Schema Validation**: AJV-powered validation against OpenAPI schemas
 - ✅ **Error Handling**: Comprehensive error handling with typed error codes
 - ✅ **Event System**: Built-in event emitter for session lifecycle events
 - ✅ **Polling Support**: Automatic polling for session completion
-- ✅ **Zero Dependencies**: Uses native `fetch` API (no external HTTP libraries)
 
 ## Installation
 
@@ -37,7 +37,7 @@ await client.init();
 // Start a recording session
 const session = await client.startRecording({
   templates: ['soap', 'medications'],
-  languageHint: 'en',
+  languageHint: ['en'],
   model: 'pro',
 });
 
@@ -101,9 +101,10 @@ Start a new recording session.
 **Options:**
 - `templates` (required): Array of template IDs to extract (e.g., `['soap', 'medications']`)
 - `model` (optional): Model ID from discovery
-- `languageHint` (optional): ISO 639-1 language code for audio input
-- `transcriptLanguage` (optional): ISO 639-1 code for transcript output
+- `languageHint` (optional): Array of ISO 639-1 language codes for audio input (e.g., `['en', 'es']`)
+- `transcriptLanguage` (optional): Array of ISO 639-1 codes for transcript output (e.g., `['en']`)
 - `uploadType` (optional): `'chunked'` or `'single'`
+- `communicationProtocol` (optional): `'http'`, `'websocket'`, or `'rpc'` (default: `'http'`)
 - `additionalData` (optional): Pass-through data for your application
 
 **Returns:**
@@ -116,7 +117,8 @@ Start a new recording session.
 ```typescript
 const session = await client.startRecording({
   templates: ['soap'],
-  languageHint: 'en',
+  languageHint: ['en'],
+  transcriptLanguage: ['en'],
   additionalData: {
     patient_id: 'pat_123',
     encounter_id: 'enc_456',
@@ -210,6 +212,65 @@ client.on('error', (event) => {
 });
 ```
 
+## Schema Validation
+
+The SDK automatically validates all API requests against the OpenAPI schema using AJV. This ensures that:
+
+- Request bodies conform to the expected structure
+- Required fields are present
+- Field types match the specification
+- Session IDs follow the correct pattern (`ses_[a-zA-Z0-9]+`)
+- Enum values are valid (e.g., `model`, `upload_type`, `communication_protocol`)
+
+Validation happens automatically before any API call:
+
+```typescript
+// This will throw a ValidationError if the request is invalid
+try {
+  const session = await client.startRecording({
+    templates: ['soap', 'medications'],
+    model: 'invalid-model', // ❌ Will fail validation if not in enum
+    uploadType: 'chunked',
+  });
+} catch (error) {
+  if (error instanceof ValidationError) {
+    console.error('Validation failed:', error.message);
+    // Example: "Validation failed for CreateSessionRequest:
+    //           - /model: must be equal to one of the allowed values (allowed values: pro, lite)"
+  }
+}
+```
+
+**Validated Operations:**
+- `createSession()`: Validates request body against `CreateSessionRequest` schema
+- `getSessionStatus()`: Validates session ID format
+- `endSession()`: Validates session ID format
+- `pollSessionStatus()`: Validates session ID format
+
+You can also use the validator directly for custom validation:
+
+```typescript
+import { schemaValidator } from 'scribe-standard-sdk/utils/validator';
+
+// Validate a session ID
+try {
+  schemaValidator.validateSessionId('ses_abc123');
+} catch (error) {
+  console.error('Invalid session ID:', error.message);
+}
+
+// Validate a create session request
+try {
+  schemaValidator.validateCreateSessionRequest({
+    templates: ['soap'],
+    upload_type: 'chunked',
+    communication_protocol: 'http',
+  });
+} catch (error) {
+  console.error('Invalid request:', error.message);
+}
+```
+
 ## Error Handling
 
 The SDK provides typed error classes for different error scenarios:
@@ -227,7 +288,9 @@ import {
 try {
   await client.startRecording({ templates: ['soap'] });
 } catch (error) {
-  if (error instanceof AuthenticationError) {
+  if (error instanceof ValidationError) {
+    console.error('Validation error:', error.message);
+  } else if (error instanceof AuthenticationError) {
     console.error('Authentication failed:', error.message);
   } else if (error instanceof SessionExpiredError) {
     console.error('Session expired:', error.details);

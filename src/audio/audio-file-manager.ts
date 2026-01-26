@@ -17,7 +17,7 @@ const uploadFile = async (
 ): Promise<{ success?: string; error?: string; code?: number }> => {
   try {
 
-    // TODO: handle upload logic, retry, upload_url_type
+    // TODO: handle upload logic, retry, upload_url_type, form data upload
     
     // If uploadUrl ends with slash, append filename. Otherwise assume it's a base path that needs a slash.
     // If uploadUrl already has a query string, it might be tricky.

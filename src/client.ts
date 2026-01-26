@@ -111,8 +111,14 @@ export class ScribeClient {
       await this.init();
     }
 
-    // TODO: Validate schema using ajv
-    this.validateRecordingOptions(options);
+    // Check microphone permission
+    const navigatorPermissionResponse = await navigator.permissions.query({
+      name: 'microphone' as PermissionName,
+    });
+
+    if (navigatorPermissionResponse.state !== 'granted') {
+      throw new ValidationError('Microphone access is required to start recording.')
+    }
 
     try {
       // Create session request
@@ -121,7 +127,8 @@ export class ScribeClient {
         model: options.model,
         language_hint: options.languageHint,
         transcript_language: options.transcriptLanguage,
-        upload_type: options.uploadType,
+        upload_type: options.uploadType || UploadType.CHUNKED,
+        communication_protocol: options.communicationProtocol || 'http',
         additional_data: options.additionalData,
       };
 
@@ -136,8 +143,6 @@ export class ScribeClient {
       if (this.config.debug) {
         console.log('[ScribeSDK] Session created:', this.currentSession);
       }
-
-      // TODO: check microphone permission
       
       // Initialize Recorder
       if (options.uploadType === UploadType.SINGLE) {
@@ -187,7 +192,6 @@ export class ScribeClient {
           this.recorder = null;
       }
 
-      // TODO: stop/commit api?
       const response = await this.sessionAPI.endSession(this.currentSession.session_id);
 
       this.emitEvent({
@@ -331,8 +335,6 @@ export class ScribeClient {
     this.currentSession = null;
   }
 
-
-
   // Private helper methods
 
   private validateConfig(config: ScribeSDKConfig): void {
@@ -341,32 +343,7 @@ export class ScribeClient {
     }
   }
 
-  private validateRecordingOptions(options: RecordingOptions): void {
-    if (!options.templates || options.templates.length === 0) {
-      throw new ValidationError('At least one template is required');
-    }
-
-    // Validate against discovery document if available
-    if (this.discoveryDocument) {
-      // Check if model is supported
-      if (options.model) {
-        const modelExists = this.discoveryDocument.models.some((m) => m.id === options.model);
-        if (!modelExists) {
-          throw new ValidationError(`Model '${options.model}' is not supported`);
-        }
-      }
-
-      // Check if language hint is supported
-      if (options.languageHint) {
-        const langSupported = this.discoveryDocument.languages.supported.includes(
-          options.languageHint
-        );
-        if (!langSupported) {
-          throw new ValidationError(`Language '${options.languageHint}' is not supported`);
-        }
-      }
-    }
-  }
+  
 
 
 }

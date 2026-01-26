@@ -77,9 +77,10 @@ export interface LanguagesInfo {
 export interface CreateSessionRequest {
   templates: string[];
   model?: string;
-  language_hint?: string;
-  transcript_language?: string;
-  upload_type?: UploadType;
+  language_hint?: string[];
+  transcript_language?: string[];
+  upload_type: UploadType;
+  communication_protocol: 'websocket' | 'http' | 'rpc';
   additional_data?: Record<string, any>;
 }
 
@@ -174,9 +175,10 @@ export interface ScribeSDKConfig {
 export interface RecordingOptions {
   templates: string[];
   model?: string;
-  languageHint?: string;
-  transcriptLanguage?: string;
+  languageHint?: string[];
+  transcriptLanguage?: string[];
   uploadType?: UploadType;
+  communicationProtocol?: 'websocket' | 'http' | 'rpc';
   additionalData?: Record<string, any>;
 }
 

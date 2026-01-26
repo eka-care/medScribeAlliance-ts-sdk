@@ -45,3 +45,6 @@ export {
   RateLimitError,
   ValidationError,
 } from './utils/errors';
+
+// Validator
+export { schemaValidator } from './utils/validator';
