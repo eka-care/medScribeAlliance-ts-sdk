@@ -191,6 +191,8 @@ export type SDKEventType =
   | 'session:created'
   | 'session:ended'
   | 'session:status_update'
+  | 'recording:paused'
+  | 'recording:resumed'
   | 'error';
 
 export interface SDKEvent {
