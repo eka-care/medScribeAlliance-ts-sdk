@@ -70,7 +70,16 @@ export class ChunkedRecorder implements IRecorder {
   async start(deviceId?: string): Promise<void> {
     await this.vadClient.initVad(deviceId);
 
-    // TODO: handle vad errors
+    const micVad = this.vadClient.getMicVad();
+    const isVadLoading = this.vadClient.isVadLoading();
+
+    if (isVadLoading || !micVad || Object.keys(micVad).length === 0) {
+      // retry initiating vad once and if still is in loading return error
+      const reinitializeVadResponse = await this.vadClient.reinitializeVad(deviceId);
+      if (reinitializeVadResponse) 
+        throw new Error('VAD instance is not initialized.');
+    }
+
     this.vadClient.startVad();
   }
 
