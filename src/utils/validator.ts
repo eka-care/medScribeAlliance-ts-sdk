@@ -8,6 +8,7 @@ import addFormats from 'ajv-formats';
 import { ValidationError } from './errors';
 import schemas from '../schemas/openapi-schemas.json';
 
+// TODO: verify this validations
 class SchemaValidator {
   private ajv: Ajv;
   private validators: Map<string, ValidateFunction> = new Map();
