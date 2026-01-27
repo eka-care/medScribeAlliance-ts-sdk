@@ -1,5 +1,5 @@
 {
-  "name": "scribe-standard-sdk",
+  "name": "med-scribe-alliance-ts-sdk",
   "version": "1.0.0",
   "description": "TypeScript SDK for the MedScribe Alliance Protocol",
   "main": "dist/index.js",

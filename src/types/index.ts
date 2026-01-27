@@ -162,8 +162,8 @@ export interface ErrorResponse {
  */
 
 export interface ScribeSDKConfig {
-  apiKey: string;
-  baseUrl?: string;
+  apiKey?: string;
+  baseUrl: string;
   debug?: boolean;
   autoDiscovery?: boolean;
 }
