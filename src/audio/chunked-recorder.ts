@@ -18,6 +18,7 @@ export class ChunkedRecorder implements IRecorder {
   private fileManager: AudioFileManager;
   private bufferManager: AudioBufferManager;
   private eventEmitter?: EventEmitter;
+  private _isPaused: boolean = false;
 
   constructor(eventEmitter?: EventEmitter) {
     this.eventEmitter = eventEmitter;
@@ -83,14 +84,33 @@ export class ChunkedRecorder implements IRecorder {
     this.vadClient.startVad();
   }
 
+  pause(): void {
+    if (!this._isPaused) {
+      this.vadClient.pauseVad();
+      this._isPaused = true;
+    }
+  }
+
+  resume(): void {
+    if (this._isPaused) {
+      this.vadClient.startVad();
+      this._isPaused = false;
+    }
+  }
+
+  isPaused(): boolean {
+    return this._isPaused;
+  }
+
   async stop(): Promise<{ failedUploads: string[]; totalFiles?: number }> {
+    this._isPaused = false;
     this.vadClient.resetVadWebInstance();
-    
+
     // Wait for pending uploads and retry failures
     await this.fileManager.waitForAllUploads();
     const failed = await this.fileManager.retryFailedUploads();
     const total = this.fileManager.getTotalAudioChunks().length;
-    
+
     return {
       failedUploads: failed,
       totalFiles: total,
@@ -98,6 +118,7 @@ export class ChunkedRecorder implements IRecorder {
   }
 
   reset(): void {
+    this._isPaused = false;
     this.vadClient.resetVadWebInstance();
     this.fileManager.resetFileManagerInstance();
     this.bufferManager.resetBufferState();

@@ -9,6 +9,7 @@ export class SingleRecorder implements IRecorder {
   private uploadUrl: string = '';
   private stream: MediaStream | null = null;
   private eventEmitter?: EventEmitter;
+  private _isPaused: boolean = false;
 
   constructor(eventEmitter?: EventEmitter) {
     this.eventEmitter = eventEmitter;
@@ -49,8 +50,27 @@ export class SingleRecorder implements IRecorder {
     this.mediaRecorder.start();
   }
 
+  pause(): void {
+    if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+      this.mediaRecorder.pause();
+      this._isPaused = true;
+    }
+  }
+
+  resume(): void {
+    if (this.mediaRecorder && this.mediaRecorder.state === 'paused') {
+      this.mediaRecorder.resume();
+      this._isPaused = false;
+    }
+  }
+
+  isPaused(): boolean {
+    return this._isPaused;
+  }
+
   async stop(): Promise<{ failedUploads: string[]; totalFiles?: number }> {
-    return new Promise((resolve, reject) => {
+    this._isPaused = false;
+    return new Promise((resolve) => {
       if (!this.mediaRecorder) {
         resolve({ failedUploads: [], totalFiles: 0 });
         return;
@@ -84,8 +104,9 @@ export class SingleRecorder implements IRecorder {
   }
 
   reset(): void {
+    this._isPaused = false;
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-        this.mediaRecorder.stop();
+      this.mediaRecorder.stop();
     }
     this.stream?.getTracks().forEach(t => t.stop());
     this.stream = null;

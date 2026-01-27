@@ -195,6 +195,52 @@ export class ScribeClient {
   }
 
   /**
+   * Pause the current recording
+   * Audio capture is temporarily suspended but session remains active
+   */
+  pauseRecording(): void {
+    if (!this.recorder) {
+      throw new ValidationError('No active recording to pause');
+    }
+
+    this.recorder.pause();
+
+    this.emitEvent({
+      type: 'recording:paused',
+    });
+
+    if (this.config.debug) {
+      console.log('[ScribeSDK] Recording paused');
+    }
+  }
+
+  /**
+   * Resume a paused recording
+   */
+  resumeRecording(): void {
+    if (!this.recorder) {
+      throw new ValidationError('No active recording to resume');
+    }
+
+    this.recorder.resume();
+
+    this.emitEvent({
+      type: 'recording:resumed',
+    });
+
+    if (this.config.debug) {
+      console.log('[ScribeSDK] Recording resumed');
+    }
+  }
+
+  /**
+   * Check if recording is currently paused
+   */
+  isRecordingPaused(): boolean {
+    return this.recorder?.isPaused() ?? false;
+  }
+
+  /**
    * End the current recording session
    * Stops audio recording, uploads remaining data, and triggers processing
    */
