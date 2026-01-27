@@ -1,58 +1,12 @@
 import { AUDIO_EXTENSION_TYPE_MAP, OUTPUT_FORMAT } from './constants';
 import { TAudioChunksInfo, UploadProgressCallback } from './types';
 import { compressAudioToMp3 } from './utils';
+import { uploadFileWithFormData } from '../utils/upload';
 
 type TUploadAudioChunkParams = {
   audioFrames: Float32Array;
   fileName: string;
   chunkIndex: number;
-};
-
-// Simple upload function replacement for pushFilesToS3V2
-const uploadFile = async (
-  uploadUrl: string,
-  fileName: string,
-  fileBlob: Blob,
-  headers?: Record<string, string>
-): Promise<{ success?: string; error?: string; code?: number }> => {
-  try {
-
-    // TODO: handle upload logic, retry, upload_url_type
-    
-    // If uploadUrl ends with slash, append filename. Otherwise assume it's a base path that needs a slash.
-    // If uploadUrl already has a query string, it might be tricky.
-    // We assume uploadUrl is a directory-like URL or an endpoint accepting POST/PUT with filename.
-    // For now, let's assume standard REST: PUT /uploadUrl/filename
-    
-    // However, if upload_url is a presigned URL, it might be specific.
-    // Given the prompt "uploading chunks to the upload_url", let's assume:
-    const url = uploadUrl.endsWith('/') ? `${uploadUrl}${fileName}` : `${uploadUrl}/${fileName}`;
-
-    const response = await fetch(url, {
-      method: 'PUT',
-      body: fileBlob,
-      headers: {
-        'Content-Type': fileBlob.type || 'application/octet-stream',
-        ...headers,
-      },
-    });
-
-    if (!response.ok) {
-      return {
-        error: response.statusText,
-        code: response.status,
-      };
-    }
-    
-    // Return ETag or just a success indicator
-    const etag = response.headers.get('ETag');
-    return { success: etag || 'Upload successful' };
-  } catch (error: any) {
-    return {
-      error: error.message || 'Network error',
-      code: 0,
-    };
-  }
 };
 
 export class AudioFileManager {
@@ -164,7 +118,7 @@ export class AudioFileManager {
 
     // Notify info (optional)
     
-    const uploadPromise = uploadFile(this.uploadUrl, fileName, audioBlob, this.uploadHeaders)
+    const uploadPromise = uploadFileWithFormData(this.uploadUrl, fileName, audioBlob, this.uploadHeaders)
       .then((response) => {
         if (response.success) {
           this.successfulUploads.push(fileName);
@@ -248,7 +202,7 @@ export class AudioFileManager {
         }
 
         if (failedFileBlob) {
-          const uploadPromise = uploadFile(this.uploadUrl, fileName, failedFileBlob, this.uploadHeaders)
+          const uploadPromise = uploadFileWithFormData(this.uploadUrl, fileName, failedFileBlob, this.uploadHeaders)
             .then((response) => {
               if (response.success) {
                 this.successfulUploads.push(fileName);

@@ -17,11 +17,13 @@ import {
   SDKEvent,
   SDKEventType,
 } from './types';
-import { SessionStatus, UploadType } from './constants';
+import { UploadType } from './constants';
 import { IRecorder, ChunkedRecorder, SingleRecorder } from './audio';
 import { EventEmitter } from './utils/events';
 
 export class ScribeClient {
+  private static instance: ScribeClient | null = null;
+
   private config: ScribeSDKConfig;
   private httpClient: HttpClient;
   private discoveryAPI: DiscoveryAPI;
@@ -31,6 +33,29 @@ export class ScribeClient {
   private discoveryDocument: DiscoveryDocument | null = null;
   private currentSession: CreateSessionResponse | null = null;
   private isInitialized: boolean = false;
+
+  /**
+   * Get the singleton instance of ScribeClient
+   * Creates a new instance if one doesn't exist
+   */
+  static getInstance(config: ScribeSDKConfig): ScribeClient {
+    if (!ScribeClient.instance) {
+      ScribeClient.instance = new ScribeClient(config);
+    }
+
+    return ScribeClient.instance;
+  }
+
+  /**
+   * Reset the singleton instance
+   * Useful for testing or when switching environments
+   */
+  static resetInstance(): void {
+    if (ScribeClient.instance) {
+      ScribeClient.instance.reset().catch(() => {});
+      ScribeClient.instance = null;
+    }
+  }
 
   constructor(config: ScribeSDKConfig) {
     this.validateConfig(config);
@@ -111,8 +136,14 @@ export class ScribeClient {
       await this.init();
     }
 
-    // TODO: Validate schema using ajv
-    this.validateRecordingOptions(options);
+    // Check microphone permission
+    const navigatorPermissionResponse = await navigator.permissions.query({
+      name: 'microphone' as PermissionName,
+    });
+
+    if (navigatorPermissionResponse.state !== 'granted') {
+      throw new ValidationError('Microphone access is required to start recording.');
+    }
 
     try {
       // Create session request
@@ -121,13 +152,14 @@ export class ScribeClient {
         model: options.model,
         language_hint: options.languageHint,
         transcript_language: options.transcriptLanguage,
-        upload_type: options.uploadType,
+        upload_type: options.uploadType || UploadType.CHUNKED,
+        communication_protocol: options.communicationProtocol || 'http',
         additional_data: options.additionalData,
       };
 
       // Create the session
       this.currentSession = await this.sessionAPI.createSession(request);
-      
+
       this.emitEvent({
         type: 'session:created',
         data: this.currentSession,
@@ -136,17 +168,17 @@ export class ScribeClient {
       if (this.config.debug) {
         console.log('[ScribeSDK] Session created:', this.currentSession);
       }
-      
+
       // Initialize Recorder
       if (options.uploadType === UploadType.SINGLE) {
-          this.recorder = new SingleRecorder(this.eventEmitter);
+        this.recorder = new SingleRecorder(this.eventEmitter);
       } else {
-          // Default to Chunked
-          this.recorder = new ChunkedRecorder(this.eventEmitter);
+        // Default to Chunked
+        this.recorder = new ChunkedRecorder(this.eventEmitter);
       }
 
       this.recorder.initialize(this.currentSession);
-      
+
       // Start recording
       // We assume options might have deviceId, or we use default
       // If RecordingOptions doesn't have deviceId, we'll need to update the type or cast
@@ -174,18 +206,17 @@ export class ScribeClient {
     try {
       // Stop recording and upload
       if (this.recorder) {
-          const { failedUploads } = await this.recorder.stop();
-          if (failedUploads.length > 0) {
-              console.warn('Some audio files failed to upload:', failedUploads);
-              throw new ScribeError(
-                  `Failed to upload audio recordings: ${failedUploads.join(', ')}`,
-                  'upload_failed'
-              );
-          }
-          this.recorder = null;
+        const { failedUploads } = await this.recorder.stop();
+        if (failedUploads.length > 0) {
+          console.warn('Some audio files failed to upload:', failedUploads);
+          throw new ScribeError(
+            `Failed to upload audio recordings: ${failedUploads.join(', ')}`,
+            'upload_failed'
+          );
+        }
+        this.recorder = null;
       }
 
-      // TODO: stop/commit api?
       const response = await this.sessionAPI.endSession(this.currentSession.session_id);
 
       this.emitEvent({
@@ -212,22 +243,22 @@ export class ScribeClient {
    */
   async reset(): Promise<void> {
     if (this.recorder) {
-        await this.recorder.stop().catch(() => {});
-        this.recorder = null;
+      await this.recorder.stop().catch(() => {});
+      this.recorder = null;
     }
     this.currentSession = null;
     this.discoveryAPI.clearCache();
     this.discoveryDocument = null;
     this.isInitialized = false;
   }
-  
+
   private emitEvent(event: SDKEvent): void {
     this.eventEmitter.emit(event);
   }
 
   /**
    * Get the output status of a session
-   * 
+   *
    * @param sessionId - Optional session ID. Uses current session if not provided.
    */
   async getOutputStatus(sessionId?: string): Promise<GetSessionStatusResponse> {
@@ -262,7 +293,7 @@ export class ScribeClient {
   /**
    * Poll for session completion
    * Continuously checks status until processing is complete
-   * 
+   *
    * @param sessionId - Optional session ID. Uses current session if not provided.
    * @param options - Polling configuration
    */
@@ -329,42 +360,17 @@ export class ScribeClient {
     this.currentSession = null;
   }
 
-
-
   // Private helper methods
 
   private validateConfig(config: ScribeSDKConfig): void {
-    if (!config.apiKey) {
-      throw new ValidationError('apiKey is required');
+    if (!config.baseUrl) {
+      throw new ValidationError('baseUrl is required for initialization');
     }
   }
-
-  private validateRecordingOptions(options: RecordingOptions): void {
-    if (!options.templates || options.templates.length === 0) {
-      throw new ValidationError('At least one template is required');
-    }
-
-    // Validate against discovery document if available
-    if (this.discoveryDocument) {
-      // Check if model is supported
-      if (options.model) {
-        const modelExists = this.discoveryDocument.models.some((m) => m.id === options.model);
-        if (!modelExists) {
-          throw new ValidationError(`Model '${options.model}' is not supported`);
-        }
-      }
-
-      // Check if language hint is supported
-      if (options.languageHint) {
-        const langSupported = this.discoveryDocument.languages.supported.includes(
-          options.languageHint
-        );
-        if (!langSupported) {
-          throw new ValidationError(`Language '${options.languageHint}' is not supported`);
-        }
-      }
-    }
-  }
-
-
 }
+
+/**
+ * Get a singleton instance of ScribeClient
+ * Convenience function for easy integration
+ */
+export const getScribeInstance = (options: ScribeSDKConfig) => ScribeClient.getInstance(options);

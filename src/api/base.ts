@@ -14,10 +14,10 @@ export interface RequestConfig {
 }
 
 export class HttpClient {
-  private apiKey: string;
+  private apiKey?: string;
   private debug: boolean;
 
-  constructor(apiKey: string, debug: boolean = false) {
+  constructor(apiKey?: string, debug: boolean = false) {
     this.apiKey = apiKey;
     this.debug = debug;
   }
@@ -32,9 +32,16 @@ export class HttpClient {
       ...config.headers,
     };
 
+    // Add API key header if provided
+    if (this.apiKey) {
+      headers['X-API-Key'] = this.apiKey;
+    }
+
     const requestInit: RequestInit = {
       method: config.method,
       headers,
+      // Include cookies for authentication when API key is not provided
+      credentials: 'include',
     };
 
     if (config.body) {

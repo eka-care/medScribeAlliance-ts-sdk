@@ -1,6 +1,7 @@
 import { IRecorder } from './recorder.interface';
 import { CreateSessionResponse } from '../types';
-import { EventEmitter } from "../utils/events"
+import { EventEmitter } from "../utils/events";
+import { uploadFileWithFormData } from '../utils/upload';
 
 export class SingleRecorder implements IRecorder {
   private mediaRecorder: MediaRecorder | null = null;
@@ -56,35 +57,22 @@ export class SingleRecorder implements IRecorder {
       }
 
       this.mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' }); 
-      
-        // Upload the file
-        try {
-            // Check if uploadUrl needs filename suffix or is a direct PUT target?
-            // "uploading chunks to the upload_url" logic was for chunks.
-            // For single file, usually upload_url IS the target.
-            // But if it's a folder, we might need a name.
-            // Let's assume it works like a PUT to the URL.
-            
-            // TODO: single file upload - name, request
-            // TODO: retry logic for file upload
-            const response = await fetch(this.uploadUrl, {
-                method: 'PUT',
-                body: audioBlob,
-                headers: {
-                    'Content-Type': audioBlob.type,
-                }
-            });
-            
-            if (!response.ok) {
-                 resolve({ failedUploads: ['single_file'], totalFiles: 1 });
-            } else {
-                 resolve({ failedUploads: [], totalFiles: 1 });
-            }
-        } catch (e) {
-            resolve({ failedUploads: ['single_file'], totalFiles: 1 });
+        const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+        const fileName = `recording_${Date.now()}.webm`;
+
+        // Upload the file using form data with retry
+        const response = await uploadFileWithFormData(
+          this.uploadUrl,
+          fileName,
+          audioBlob
+        );
+
+        if (response.success) {
+          resolve({ failedUploads: [], totalFiles: 1 });
+        } else {
+          resolve({ failedUploads: [fileName], totalFiles: 1 });
         }
-        
+
         // Clean up stream
         this.stream?.getTracks().forEach(t => t.stop());
         this.stream = null;

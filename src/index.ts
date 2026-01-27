@@ -6,7 +6,8 @@
  */
 
 // Main client
-export { ScribeClient } from './client';
+export { ScribeClient, getScribeInstance } from './client';
+export type { ScribeEnvironment, GetScribeInstanceOptions } from './client';
 
 // Types
 export type {
@@ -45,3 +46,6 @@ export {
   RateLimitError,
   ValidationError,
 } from './utils/errors';
+
+// Validator
+export { schemaValidator } from './utils/validator';
