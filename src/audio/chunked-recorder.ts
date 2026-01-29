@@ -64,6 +64,8 @@ export class ChunkedRecorder implements IRecorder {
     }
 
     const uploadHeaders: Record<string, string> = {};
+
+    console.log(config, 'initialize - WIDGET');
     if (config?.accessToken) {
       uploadHeaders['Authorization'] = `Bearer ${config.accessToken}`;
     }

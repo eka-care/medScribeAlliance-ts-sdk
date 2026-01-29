@@ -258,11 +258,8 @@ export class VadWebClient {
           const vadResponse = this.processVadFrame(vad_dec);
           const is_clip_point = vadResponse[0];
 
-          console.log('is clip point:', is_clip_point, ' at index:', vadResponse[1]);
-
           if (is_clip_point) {
             const activeAudioChunk = this.audioBufferManager?.getAudioData();
-            console.log('Processing audio chunk at clip point:', activeAudioChunk);
             if (activeAudioChunk) {
               this.processAudioChunk({ audioFrames: activeAudioChunk });
             }
@@ -295,8 +292,8 @@ export class VadWebClient {
   async processAudioChunk({ audioFrames }: { audioFrames?: Float32Array }) {
     if (!audioFrames || !this.audioFileManager || !this.audioBufferManager) return;
 
-    const filenumber = this.audioFileManager.audioChunks.length || 0;
-    const fileName = `audio_${filenumber}.${OUTPUT_FORMAT}`;
+    const filenumber = (this.audioFileManager.audioChunks.length || 0) + 1;
+    const fileName = `chunk_${filenumber}.${OUTPUT_FORMAT}`;
 
     const rawSampleDetails = this.audioFileManager.getRawSampleDetails();
     const chunkTimestamps = this.audioBufferManager.calculateChunkTimestamps(
@@ -321,8 +318,6 @@ export class VadWebClient {
         this.audioBufferManager.getCurrentFrameLength()
       );
       this.audioBufferManager.resetBufferState();
-
-      console.log('Uploading audio chunk:', fileName, ' at index:', audioChunkLength - 1);
 
       await this.audioFileManager.uploadAudio({
         audioFrames,

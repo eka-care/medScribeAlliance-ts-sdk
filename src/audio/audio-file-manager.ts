@@ -119,36 +119,39 @@ export class AudioFileManager {
 
     console.log('Uploading to URL:', this.uploadUrl, 'filename:', fileName);
 
-    const uploadPromise = uploadFileWithFormData(this.uploadUrl, fileName, audioBlob).then(
-      (response) => {
-        if (response.success) {
-          this.successfulUploads.push(fileName);
+    const uploadPromise = uploadFileWithFormData(
+      this.uploadUrl,
+      fileName,
+      audioBlob,
+      this.uploadHeaders
+    ).then((response) => {
+      if (response.success) {
+        this.successfulUploads.push(fileName);
 
-          if (chunkIndex !== -1 && this.audioChunks[chunkIndex]) {
-            this.audioChunks[chunkIndex] = {
-              ...this.audioChunks[chunkIndex],
-              audioFrames: undefined,
-              fileBlob: undefined,
-              status: 'success',
-              response: response.success,
-            };
-          }
-
-          this.onUploadProgress?.([...this.successfulUploads], this.audioChunks.length);
-        } else {
-          if (chunkIndex !== -1 && this.audioChunks[chunkIndex]) {
-            this.audioChunks[chunkIndex] = {
-              ...this.audioChunks[chunkIndex],
-              fileBlob: audioBlob,
-              audioFrames: undefined,
-              status: 'failure',
-              response: response.error || 'Upload failed',
-            };
-          }
+        if (chunkIndex !== -1 && this.audioChunks[chunkIndex]) {
+          this.audioChunks[chunkIndex] = {
+            ...this.audioChunks[chunkIndex],
+            audioFrames: undefined,
+            fileBlob: undefined,
+            status: 'success',
+            response: response.success,
+          };
         }
-        return response;
+
+        this.onUploadProgress?.([...this.successfulUploads], this.audioChunks.length);
+      } else {
+        if (chunkIndex !== -1 && this.audioChunks[chunkIndex]) {
+          this.audioChunks[chunkIndex] = {
+            ...this.audioChunks[chunkIndex],
+            fileBlob: audioBlob,
+            audioFrames: undefined,
+            status: 'failure',
+            response: response.error || 'Upload failed',
+          };
+        }
       }
-    );
+      return response;
+    });
 
     this.uploadPromises.push(uploadPromise);
 
@@ -207,7 +210,8 @@ export class AudioFileManager {
           const uploadPromise = uploadFileWithFormData(
             this.uploadUrl,
             fileName,
-            failedFileBlob
+            failedFileBlob,
+            this.uploadHeaders
           ).then((response) => {
             if (response.success) {
               this.successfulUploads.push(fileName);

@@ -70,14 +70,16 @@ export async function uploadFileWithFormData(
   retryOptions?: RetryOptions
 ): Promise<UploadResponse> {
   const uploadFn = async (): Promise<UploadResponse> => {
-    const formData = new FormData();
-    formData.append('file', fileBlob, fileName);
+    // Append filename to URL
+    const fullUploadUrl = uploadUrl.endsWith('/')
+      ? `${uploadUrl}${fileName}`
+      : `${uploadUrl}/${fileName}`;
 
-    const response = await fetch(uploadUrl, {
+    const response = await fetch(fullUploadUrl, {
       method: 'POST',
-      body: formData,
+      body: fileBlob,
       headers: {
-        // Note: Don't set Content-Type header - browser will set it with boundary for FormData
+        'Content-Type': 'audio/mp3',
         ...(headers || {}),
       },
     });
