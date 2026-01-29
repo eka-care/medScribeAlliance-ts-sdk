@@ -30,10 +30,7 @@ export async function retryWrapper<T>(
       return await fn();
     } catch (error: any) {
       lastError = error;
-      console.log(
-        `Upload attempt ${attempt + 1} failed:`,
-        error?.message || error
-      );
+      console.log(`Upload attempt ${attempt + 1} failed:`, error?.message || error);
 
       // Don't retry on 4xx client errors (except 408 Request Timeout and 429 Too Many Requests)
       const statusCode = error?.statusCode || error?.code;
@@ -81,7 +78,7 @@ export async function uploadFileWithFormData(
       body: formData,
       headers: {
         // Note: Don't set Content-Type header - browser will set it with boundary for FormData
-        ...headers,
+        ...(headers || {}),
       },
     });
 

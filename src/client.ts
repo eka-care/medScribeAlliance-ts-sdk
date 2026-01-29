@@ -251,8 +251,9 @@ export class ScribeClient {
 
     try {
       // Stop recording and upload
+      let audioFilesSent = 0;
       if (this.recorder) {
-        const { failedUploads } = await this.recorder.stop();
+        const { failedUploads, totalFiles } = await this.recorder.stop();
         if (failedUploads.length > 0) {
           console.warn('Some audio files failed to upload:', failedUploads);
           throw new ScribeError(
@@ -260,10 +261,11 @@ export class ScribeClient {
             'upload_failed'
           );
         }
+        audioFilesSent = totalFiles || 0;
         this.recorder = null;
       }
 
-      const response = await this.sessionAPI.endSession(this.currentSession.session_id);
+      const response = await this.sessionAPI.endSession(this.currentSession.session_id, audioFilesSent);
 
       this.emitEvent({
         type: 'session:ended',
