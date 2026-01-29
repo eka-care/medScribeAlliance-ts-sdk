@@ -1,12 +1,13 @@
-import { IRecorder } from './recorder.interface';
+import { IRecorder, RecorderConfig } from './recorder.interface';
 import { CreateSessionResponse } from '../types';
-import { EventEmitter } from "../utils/events";
+import { EventEmitter } from '../utils/events';
 import { uploadFileWithFormData } from '../utils/upload';
 
 export class SingleRecorder implements IRecorder {
   private mediaRecorder: MediaRecorder | null = null;
   private audioChunks: Blob[] = [];
   private uploadUrl: string = '';
+  private uploadHeaders: Record<string, string> = {};
   private stream: MediaStream | null = null;
   private eventEmitter?: EventEmitter;
   private _isPaused: boolean = false;
@@ -15,16 +16,20 @@ export class SingleRecorder implements IRecorder {
     this.eventEmitter = eventEmitter;
   }
 
-  initialize(session: CreateSessionResponse): void {
+  initialize(session: CreateSessionResponse, config?: RecorderConfig): void {
     if (!session.upload_url) {
       throw new Error('Upload URL is required for single recording');
     }
     this.uploadUrl = session.upload_url;
+
+    if (config?.accessToken) {
+      this.uploadHeaders['Authorization'] = `Bearer ${config.accessToken}`;
+    }
   }
 
   async start(deviceId?: string): Promise<void> {
     this.audioChunks = [];
-    
+
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -32,12 +37,12 @@ export class SingleRecorder implements IRecorder {
       });
     } catch (e: any) {
       if (e?.name === 'OverconstrainedError' || e?.name === 'NotFoundError') {
-         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       } else {
         throw e;
       }
     }
-    
+
     this.stream = stream;
     this.mediaRecorder = new MediaRecorder(stream);
 
@@ -84,7 +89,8 @@ export class SingleRecorder implements IRecorder {
         const response = await uploadFileWithFormData(
           this.uploadUrl,
           fileName,
-          audioBlob
+          audioBlob,
+          this.uploadHeaders
         );
 
         if (response.success) {
@@ -94,7 +100,7 @@ export class SingleRecorder implements IRecorder {
         }
 
         // Clean up stream
-        this.stream?.getTracks().forEach(t => t.stop());
+        this.stream?.getTracks().forEach((t) => t.stop());
         this.stream = null;
         this.mediaRecorder = null;
       };
@@ -108,7 +114,7 @@ export class SingleRecorder implements IRecorder {
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
       this.mediaRecorder.stop();
     }
-    this.stream?.getTracks().forEach(t => t.stop());
+    this.stream?.getTracks().forEach((t) => t.stop());
     this.stream = null;
     this.mediaRecorder = null;
     this.audioChunks = [];

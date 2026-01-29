@@ -163,6 +163,7 @@ export interface ErrorResponse {
 
 export interface ScribeSDKConfig {
   apiKey?: string;
+  accessToken?: string;
   baseUrl: string;
   debug?: boolean;
   autoDiscovery?: boolean;

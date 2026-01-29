@@ -1,7 +1,11 @@
 import { CreateSessionResponse } from '../types';
 
+export interface RecorderConfig {
+  accessToken?: string;
+}
+
 export interface IRecorder {
-  initialize(session: CreateSessionResponse): void;
+  initialize(session: CreateSessionResponse, config?: RecorderConfig): void;
   start(deviceId?: string): Promise<void>;
   pause(): void;
   resume(): void;

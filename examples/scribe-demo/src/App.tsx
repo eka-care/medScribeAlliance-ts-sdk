@@ -26,12 +26,13 @@ function App() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isPolling, setIsPolling] = useState(false);
   const [, setHasMicPermission] = useState<boolean | null>(null);
+  const [elapsedTime, setElapsedTime] = useState(0);
 
   // Configuration
   const [config, setConfig] = useState({
     baseUrl: '',
     apiKey: '',
-    templates: 'soap',
+    templates: 'eka_emr_template',
     model: '',
     debug: true,
   });
@@ -39,6 +40,7 @@ function App() {
   // Refs
   const clientRef = useRef<ScribeClient | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Auto-scroll logs
   useEffect(() => {
@@ -49,6 +51,48 @@ function App() {
   const addLog = useCallback((type: LogEntry['type'], message: string) => {
     setLogs((prev) => [...prev, { timestamp: new Date(), type, message }]);
   }, []);
+
+  // Timer functions
+  const startTimer = useCallback(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    setElapsedTime(0);
+    timerRef.current = setInterval(() => {
+      setElapsedTime((prev) => prev + 1);
+    }, 1000);
+  }, []);
+
+  const pauseTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const resumeTimer = useCallback(() => {
+    if (!timerRef.current) {
+      timerRef.current = setInterval(() => {
+        setElapsedTime((prev) => prev + 1);
+      }, 1000);
+    }
+  }, []);
+
+  const stopTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const resetTimer = useCallback(() => {
+    stopTimer();
+    setElapsedTime(0);
+  }, [stopTimer]);
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   // Initialize SDK
   const initializeSDK = useCallback(async () => {
@@ -63,7 +107,8 @@ function App() {
     try {
       // Reset any existing client
       if (clientRef.current) {
-        await clientRef.current.reset();
+        const resetResponse = await clientRef.current.reset();
+        console.log('SDK reset response (during init):', resetResponse);
         clientRef.current = null;
       }
 
@@ -94,7 +139,8 @@ function App() {
         addLog('error', `SDK Error: ${event.error?.message || 'Unknown error'}`);
       });
 
-      await client.init();
+      const initResponse = await client.init();
+      console.log('SDK init response:', initResponse);
       clientRef.current = client;
       setIsInitialized(true);
       addLog('success', 'SDK initialized successfully');
@@ -155,9 +201,11 @@ function App() {
       };
 
       const session = await clientRef.current.startRecording(options);
+      console.log('SDK startRecording response:', session);
       setSessionInfo(session);
       setRecordingState('recording');
       setOutputStatus(null);
+      startTimer();
       addLog('success', `Recording started - Session ID: ${session.session_id}`);
     } catch (error) {
       addLog(
@@ -167,7 +215,7 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [config, addLog, requestMicPermission]);
+  }, [config, addLog, requestMicPermission, startTimer]);
 
   // Stop Recording
   const stopRecording = useCallback(async () => {
@@ -181,7 +229,9 @@ function App() {
 
     try {
       const response = await clientRef.current.endRecording();
+      console.log('SDK endRecording response:', response);
       setRecordingState('stopped');
+      stopTimer();
       addLog('success', `Recording stopped - Files received: ${response.audio_files_received}`);
     } catch (error) {
       addLog(
@@ -191,7 +241,7 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [addLog]);
+  }, [addLog, stopTimer]);
 
   // Pause Recording
   const pauseRecording = useCallback(() => {
@@ -201,13 +251,15 @@ function App() {
     }
 
     try {
-      clientRef.current.pauseRecording();
+      const response = clientRef.current.pauseRecording();
+      console.log('SDK pauseRecording response:', response);
       setRecordingState('paused');
+      pauseTimer();
       addLog('success', 'Recording paused');
     } catch (error) {
       addLog('error', `Failed to pause: ${error instanceof Error ? error.message : String(error)}`);
     }
-  }, [addLog]);
+  }, [addLog, pauseTimer]);
 
   // Resume Recording
   const resumeRecording = useCallback(() => {
@@ -217,8 +269,10 @@ function App() {
     }
 
     try {
-      clientRef.current.resumeRecording();
+      const response = clientRef.current.resumeRecording();
+      console.log('SDK resumeRecording response:', response);
       setRecordingState('recording');
+      resumeTimer();
       addLog('success', 'Recording resumed');
     } catch (error) {
       addLog(
@@ -226,7 +280,7 @@ function App() {
         `Failed to resume: ${error instanceof Error ? error.message : String(error)}`
       );
     }
-  }, [addLog]);
+  }, [addLog, resumeTimer]);
 
   // Get Output Status
   const getOutputStatus = useCallback(async () => {
@@ -240,6 +294,7 @@ function App() {
 
     try {
       const status = await clientRef.current.getOutputStatus();
+      console.log('SDK getOutputStatus response:', status);
       setOutputStatus(status);
       addLog('success', `Status: ${status.status}`);
     } catch (error) {
@@ -267,10 +322,12 @@ function App() {
         maxAttempts: 60,
         intervalMs: 2000,
         onProgress: (s) => {
+          console.log('SDK pollForCompletion progress:', s);
           addLog('info', `Processing... Status: ${s.status}`);
           setOutputStatus(s);
         },
       });
+      console.log('SDK pollForCompletion response:', status);
       setOutputStatus(status);
       addLog('success', 'Processing complete!');
     } catch (error) {
@@ -283,15 +340,17 @@ function App() {
   // Reset
   const resetSDK = useCallback(async () => {
     if (clientRef.current) {
-      await clientRef.current.reset();
+      const response = await clientRef.current.reset();
+      console.log('SDK reset response:', response);
       clientRef.current = null;
     }
     setIsInitialized(false);
     setRecordingState('idle');
     setSessionInfo(null);
     setOutputStatus(null);
+    resetTimer();
     addLog('info', 'SDK reset');
-  }, [addLog]);
+  }, [addLog, resetTimer]);
 
   // Clear logs
   const clearLogs = useCallback(() => {
@@ -393,6 +452,16 @@ function App() {
           <div className="status-badge">
             Status:{' '}
             <span className={`badge badge-${recordingState}`}>{recordingState.toUpperCase()}</span>
+            {(recordingState === 'recording' ||
+              recordingState === 'paused' ||
+              recordingState === 'stopped') && (
+              <span
+                className="timer"
+                style={{ marginLeft: '16px', fontFamily: 'monospace', fontSize: '1.2em' }}
+              >
+                {formatTime(elapsedTime)}
+              </span>
+            )}
           </div>
           <div className="button-row controls">
             <button

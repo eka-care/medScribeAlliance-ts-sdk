@@ -65,7 +65,11 @@ export class ScribeClient {
       ...config,
     };
 
-    this.httpClient = new HttpClient(this.config.apiKey, this.config.debug);
+    this.httpClient = new HttpClient(
+      this.config.apiKey,
+      this.config.accessToken,
+      this.config.debug
+    );
     this.discoveryAPI = new DiscoveryAPI(this.httpClient);
     this.sessionAPI = new SessionAPI(
       this.httpClient,
@@ -177,7 +181,9 @@ export class ScribeClient {
         this.recorder = new ChunkedRecorder(this.eventEmitter);
       }
 
-      this.recorder.initialize(this.currentSession);
+      this.recorder.initialize(this.currentSession, {
+        accessToken: this.config.accessToken,
+      });
 
       // Start recording
       // We assume options might have deviceId, or we use default
@@ -265,7 +271,10 @@ export class ScribeClient {
         this.recorder = null;
       }
 
-      const response = await this.sessionAPI.endSession(this.currentSession.session_id, audioFilesSent);
+      const response = await this.sessionAPI.endSession(
+        this.currentSession.session_id,
+        audioFilesSent
+      );
 
       this.emitEvent({
         type: 'session:ended',
