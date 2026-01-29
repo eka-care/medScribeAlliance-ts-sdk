@@ -10,8 +10,10 @@ import {
   SAMPLING_RATE,
   AUDIO_BUFFER_SIZE_IN_S,
   FRAME_RATE,
+  OUTPUT_FORMAT,
 } from './constants';
 import { EventEmitter } from '../utils/events';
+import { TAudioChunksInfo } from './types';
 
 export class ChunkedRecorder implements IRecorder {
   private vadClient: VadWebClient;
@@ -115,6 +117,44 @@ export class ChunkedRecorder implements IRecorder {
 
   async stop(): Promise<{ failedUploads: string[]; totalFiles?: number }> {
     this._isPaused = false;
+
+    // Upload last audio chunk if there's remaining audio in the buffer
+    if (this.bufferManager.getCurrentSampleLength() > 0) {
+      const audioFrames = this.bufferManager.getAudioData();
+      const filenumber = (this.fileManager.audioChunks.length || 0) + 1;
+      const fileName = `chunk_${filenumber}.${OUTPUT_FORMAT}`;
+
+      const rawSampleDetails = this.fileManager.getRawSampleDetails();
+      const chunkTimestamps = this.bufferManager.calculateChunkTimestamps(
+        rawSampleDetails.totalRawSamples
+      );
+
+      const chunkInfo: TAudioChunksInfo = {
+        fileName,
+        timestamp: {
+          st: chunkTimestamps.start,
+          et: chunkTimestamps.end,
+        },
+        status: 'pending',
+        audioFrames,
+      };
+
+      const audioChunkLength = this.fileManager.updateAudioInfo(chunkInfo);
+
+      this.fileManager.incrementInsertedSamples(
+        this.bufferManager.getCurrentSampleLength(),
+        this.bufferManager.getCurrentFrameLength()
+      );
+      this.bufferManager.resetBufferState();
+
+      console.log('Uploading last audio chunk:', fileName);
+      await this.fileManager.uploadAudio({
+        audioFrames,
+        fileName,
+        chunkIndex: audioChunkLength - 1,
+      });
+    }
+
     this.vadClient.resetVadWebInstance();
 
     // Wait for pending uploads and retry failures
