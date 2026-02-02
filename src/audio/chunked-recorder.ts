@@ -118,6 +118,8 @@ export class ChunkedRecorder implements IRecorder {
   async stop(): Promise<{ failedUploads: string[]; totalFiles?: number }> {
     this._isPaused = false;
 
+    this.vadClient.destroyVad();
+
     // Upload last audio chunk if there's remaining audio in the buffer
     if (this.bufferManager.getCurrentSampleLength() > 0) {
       const audioFrames = this.bufferManager.getAudioData();

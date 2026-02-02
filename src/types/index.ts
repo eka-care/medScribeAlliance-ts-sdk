@@ -129,6 +129,7 @@ export interface TemplatesOutput {
 export interface TemplateEntry {
   status: TemplateStatus;
   data?: any;
+  fhir?: any;
   error?: TemplateError;
 }
 
