@@ -26,10 +26,7 @@ import { CallbackRegistry } from '../callbacks/callback-registry';
 import { AudioFileManager } from '../audio/audio-file-manager';
 import { encodeToMp3 } from '../audio/mp3-encoder';
 import type { ITransport } from '../types/transport';
-import type {
-  MainToWorkerMessage,
-  WorkerToMainMessage,
-} from '../types/worker';
+import type { MainToWorkerMessage, WorkerToMainMessage } from '../types/worker';
 
 export interface WorkerManagerConfig {
   /** Path to the compiled shared-worker.js bundle. Required for SharedWorker mode. */
@@ -69,7 +66,11 @@ export class WorkerManager {
 
     // SharedWorker only works in browser with HTTP transport.
     // For IPC transport (Electron), forceMainThread should be true.
-    if (!config?.forceMainThread && typeof SharedWorker !== 'undefined' && config?.workerScriptUrl) {
+    if (
+      !config?.forceMainThread &&
+      typeof SharedWorker !== 'undefined' &&
+      config?.workerScriptUrl
+    ) {
       try {
         this.worker = new SharedWorker(config.workerScriptUrl, {
           name: 'scribe-sdk-worker',
@@ -81,7 +82,10 @@ export class WorkerManager {
         this.port.start();
         this.useWorker = true;
       } catch (error) {
-        console.warn('[ScribeSDK] SharedWorker failed to initialize, falling back to main thread:', error);
+        console.warn(
+          '[ScribeSDK] SharedWorker failed to initialize, falling back to main thread:',
+          error
+        );
         this.worker = null;
         this.port = null;
         this.useWorker = false;
@@ -97,6 +101,7 @@ export class WorkerManager {
     this.uploadHeaders = headers;
   }
 
+  // FIX: file upload via multipart form-data or raw binary body
   /**
    * Compress raw audio to MP3 and upload.
    * Called by ChunkedRecorder each time a clip point is detected.
@@ -184,7 +189,9 @@ export class WorkerManager {
         timestamp: new Date().toISOString(),
         error: {
           code: 'worker_post_failed',
-          message: `Failed to send message to worker: ${error instanceof Error ? error.message : 'Unknown'}`,
+          message: `Failed to send message to worker: ${
+            error instanceof Error ? error.message : 'Unknown'
+          }`,
         },
       });
     }
@@ -286,11 +293,7 @@ export class WorkerManager {
       this.fileManager.markSuccess(chunkIndex);
       this.dispatchUploadProgress();
     } catch (error: any) {
-      this.fileManager.markFailure(
-        chunkIndex,
-        new Blob(),
-        error?.message ?? 'Upload failed'
-      );
+      this.fileManager.markFailure(chunkIndex, new Blob(), error?.message ?? 'Upload failed');
       this.callbackRegistry.dispatch('onUploadEvent', {
         type: 'failed',
         timestamp: new Date().toISOString(),
