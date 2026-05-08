@@ -83,6 +83,7 @@ export type {
   // Common
   ApiError,
   ErrorResponse,
+  SDKResult,
 } from './types';
 
 // --- Constants & Enums ---

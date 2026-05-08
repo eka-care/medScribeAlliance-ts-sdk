@@ -115,8 +115,8 @@ export class IpcTransport implements ITransport {
       });
     }
 
-    // Map HTTP-level errors
-    if (ipcResponse.status >= 400) {
+    // Map HTTP-level errors (skip if caller accepts this status)
+    if (ipcResponse.status >= 400 && !config.acceptStatuses?.includes(ipcResponse.status)) {
       return this.handleErrorResponse<T>(ipcResponse, config);
     }
 

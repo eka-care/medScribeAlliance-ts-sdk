@@ -1,15 +1,9 @@
 /**
  * ScribeClient — thin facade for the MedScribe Alliance TS SDK.
  *
- * Wires together all SDK layers and exposes a simple public API:
- * - init()            → fetch discovery, configure transport
- * - startRecording()  → create session, start recorder
- * - pauseRecording()  → pause recorder
- * - resumeRecording() → resume recorder
- * - endRecording()    → stop recorder, end session
- * - getSessionStatus()→ query session state
- * - pollForCompletion() → poll until terminal state
- * - on() / off()      → register/remove callbacks via CallbackRegistry
+ * All public async methods return SDKResult<T> — expected errors
+ * (API failures, auth, validation, mic denied) are returned, not thrown.
+ * Only programmer errors (bad config at construction) throw.
  *
  * This class does NOT contain business logic — it delegates to:
  * - DiscoveryManager  (discovery + resolved config)
@@ -25,16 +19,16 @@ import type {
   RecordingOptions,
   CreateSessionResponse,
   GetSessionStatusResponse,
-  EndSessionResponse,
   PollOptions,
   DiscoveryDocument,
   ResolvedConfig,
   CallbackMap,
   CallbackName,
   CreateSessionRequest,
+  SDKResult,
 } from './types';
 import { TransportMode } from './constants';
-import { ValidationError } from './utils/errors';
+import { ScribeError, ValidationError } from './utils/errors';
 import { CallbackRegistry } from './callbacks/callback-registry';
 import { Validator } from './validation/validator';
 import { HttpTransport } from './transport/http-transport';
@@ -96,16 +90,17 @@ export class ScribeClient {
    * Initialize the SDK — fetches the discovery document if autoDiscovery is enabled.
    * Must be called before starting a recording.
    */
-  async init(): Promise<void> {
+  async init(): Promise<SDKResult<void>> {
     if (this.isInitialized) {
-      return;
+      return { success: true, data: undefined };
     }
 
-    if (this.config.autoDiscovery !== false) {
-      await this.discoveryManager.fetchDiscovery(this.config.baseUrl);
-    }
-
-    this.isInitialized = true;
+    return this.wrapResult(async () => {
+      if (this.config.autoDiscovery !== false) {
+        await this.discoveryManager.fetchDiscovery(this.config.baseUrl);
+      }
+      this.isInitialized = true;
+    });
   }
 
   // --- Recording ---
@@ -114,15 +109,19 @@ export class ScribeClient {
    * Start a recording session.
    * Calls init() automatically if not already initialized.
    */
-  async startRecording(options: RecordingOptions): Promise<CreateSessionResponse> {
+  async startRecording(options: RecordingOptions): Promise<SDKResult<CreateSessionResponse>> {
     if (!this.isInitialized) {
-      await this.init();
+      const initResult = await this.init();
+      if (!initResult.success) {
+        return initResult;
+      }
     }
 
-    // Use discovery base URL if available, otherwise fall back to config
     const baseUrl = this.getEffectiveBaseUrl();
 
-    return this.recordingManager.start(baseUrl, options, this.config.accessToken);
+    return this.wrapResult(() =>
+      this.recordingManager.start(baseUrl, options, this.config.accessToken)
+    );
   }
 
   /**
@@ -142,8 +141,8 @@ export class ScribeClient {
   /**
    * End the active recording — stops recorder, waits for uploads, ends session.
    */
-  async endRecording(): Promise<StopRecordingResult> {
-    return this.recordingManager.stop();
+  async endRecording(): Promise<SDKResult<StopRecordingResult>> {
+    return this.wrapResult(() => this.recordingManager.stop());
   }
 
   /**
@@ -163,27 +162,24 @@ export class ScribeClient {
   // --- Session ---
 
   /**
-   * Get the status of a session.
-   * Uses the current active session if no sessionId is provided.
+   * Create a session directly (without starting a recording).
    */
-  async createSession({
-    sessionId,
-    sessionRequest,
-  }: {
-    sessionId?: string;
-    sessionRequest: CreateSessionRequest;
-  }): Promise<GetSessionStatusResponse> {
+  async createSession(sessionRequest: CreateSessionRequest): Promise<SDKResult<CreateSessionResponse>> {
     const baseUrl = this.getEffectiveBaseUrl();
-    return this.sessionManager.createSession(baseUrl, sessionRequest);
+    return this.wrapResult(() =>
+      this.sessionManager.createSession(baseUrl, sessionRequest)
+    );
   }
 
   /**
    * Get the status of a session.
    * Uses the current active session if no sessionId is provided.
    */
-  async getSessionStatus(sessionId?: string): Promise<GetSessionStatusResponse> {
+  async getSessionStatus(sessionId?: string): Promise<SDKResult<GetSessionStatusResponse>> {
     const baseUrl = this.getEffectiveBaseUrl();
-    return this.sessionManager.getSessionStatus(baseUrl, sessionId);
+    return this.wrapResult(() =>
+      this.sessionManager.getSessionStatus(baseUrl, sessionId)
+    );
   }
 
   /**
@@ -192,9 +188,11 @@ export class ScribeClient {
   async pollForCompletion(
     sessionId?: string,
     options?: PollOptions
-  ): Promise<GetSessionStatusResponse> {
+  ): Promise<SDKResult<GetSessionStatusResponse>> {
     const baseUrl = this.getEffectiveBaseUrl();
-    return this.sessionManager.pollForCompletion(baseUrl, sessionId, options);
+    return this.wrapResult(() =>
+      this.sessionManager.pollForCompletion(baseUrl, sessionId, options)
+    );
   }
 
   /**
@@ -208,10 +206,14 @@ export class ScribeClient {
 
   /**
    * Get the resolved discovery config.
-   * Throws if discovery hasn't been fetched yet.
+   * Returns error if discovery hasn't been fetched yet.
    */
-  getDiscoveryConfig(): ResolvedConfig {
-    return this.discoveryManager.getResolvedConfig();
+  getDiscoveryConfig(): SDKResult<ResolvedConfig> {
+    try {
+      return { success: true, data: this.discoveryManager.getResolvedConfig() };
+    } catch (error) {
+      return { success: false, error: this.toScribeError(error) };
+    }
   }
 
   /**
@@ -224,8 +226,10 @@ export class ScribeClient {
   /**
    * Force refresh the discovery document.
    */
-  async refreshDiscovery(): Promise<ResolvedConfig> {
-    return this.discoveryManager.fetchDiscovery(this.config.baseUrl, true);
+  async refreshDiscovery(): Promise<SDKResult<ResolvedConfig>> {
+    return this.wrapResult(() =>
+      this.discoveryManager.fetchDiscovery(this.config.baseUrl, true)
+    );
   }
 
   // --- Callbacks ---
@@ -291,6 +295,31 @@ export class ScribeClient {
 
   // --- Private ---
 
+  /**
+   * Wraps an async operation into SDKResult.
+   * Internal layers throw — this converts to { success, data/error }.
+   */
+  private async wrapResult<T>(fn: () => Promise<T>): Promise<SDKResult<T>> {
+    try {
+      const data = await fn();
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: this.toScribeError(error) };
+    }
+  }
+
+  /**
+   * Ensures any error is a ScribeError instance.
+   */
+  private toScribeError(error: unknown): ScribeError {
+    if (error instanceof ScribeError) {
+      return error;
+    }
+    return new ScribeError(
+      error instanceof Error ? error.message : 'Unknown error'
+    );
+  }
+
   private createTransport(): ITransport {
     const onUnauthorized = () => {
       this.callbackRegistry.dispatch('onTokenRequired', {
@@ -336,8 +365,6 @@ export class ScribeClient {
     // 'auto' or true — let WorkerManager decide based on SharedWorker availability
     return {
       forceMainThread: false,
-      // Consumer must provide workerScriptUrl for SharedWorker to work.
-      // Without it, WorkerManager falls back to main thread automatically.
     };
   }
 

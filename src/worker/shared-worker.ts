@@ -39,16 +39,25 @@ function broadcast(message: WorkerToMainMessage): void {
   }
 }
 
+interface UploadResult {
+  success: boolean;
+  error?: string;
+  statusCode?: number;
+}
+
 /**
  * Upload a blob to the given URL with retry logic.
- * Returns true on success, false on failure.
+ * Returns success/failure with the server error message if available.
  */
 async function uploadWithRetry(
   uploadUrl: string,
   fileName: string,
   blob: Blob,
   headers: Record<string, string>
-): Promise<boolean> {
+): Promise<UploadResult> {
+  let lastError = 'Upload failed after retries';
+  let lastStatusCode: number | undefined;
+
   for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
     try {
       const fullUrl = uploadUrl.endsWith('/')
@@ -72,8 +81,12 @@ async function uploadWithRetry(
       });
 
       if (response.ok) {
-        return true;
+        return { success: true };
       }
+
+      // Parse server error body for better error messages
+      lastStatusCode = response.status;
+      lastError = await parseErrorMessage(response);
 
       // 401 — request a new token from main thread
       if (response.status === 401) {
@@ -90,14 +103,15 @@ async function uploadWithRetry(
         response.status !== 408 &&
         response.status !== 429
       ) {
-        return false;
+        return { success: false, error: lastError, statusCode: lastStatusCode };
       }
 
       // Retryable error — wait and retry
       if (attempt < DEFAULT_MAX_RETRIES) {
         await sleep(DEFAULT_RETRY_DELAY_MS);
       }
-    } catch {
+    } catch (e: any) {
+      lastError = e?.message ?? 'Network error';
       // Network error — retry
       if (attempt < DEFAULT_MAX_RETRIES) {
         await sleep(DEFAULT_RETRY_DELAY_MS);
@@ -105,7 +119,20 @@ async function uploadWithRetry(
     }
   }
 
-  return false;
+  return { success: false, error: lastError, statusCode: lastStatusCode };
+}
+
+/**
+ * Parse the server error response body.
+ * Server returns: { error: { code, message, details? } }
+ */
+async function parseErrorMessage(response: Response): Promise<string> {
+  try {
+    const body = await response.json();
+    return body?.error?.message ?? body?.message ?? response.statusText ?? 'Request failed';
+  } catch {
+    return response.statusText ?? `HTTP ${response.status}`;
+  }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -136,15 +163,15 @@ async function handleCompressAndUpload(
       return;
     }
 
-    const success = await uploadWithRetry(uploadUrl, fileName, mp3Blob, headers);
+    const result = await uploadWithRetry(uploadUrl, fileName, mp3Blob, headers);
 
-    if (success) {
+    if (result.success) {
       broadcast({ type: 'upload_success', fileName });
     } else {
       broadcast({
         type: 'upload_failed',
         fileName,
-        error: 'Upload failed after retries',
+        error: result.error ?? 'Upload failed after retries',
       });
     }
   } catch (error: any) {

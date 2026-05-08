@@ -9,6 +9,8 @@ export interface TransportRequest {
   body?: any;
   isUpload?: boolean;
   uploadBlob?: Blob;
+  /** Additional HTTP status codes to treat as success (not throw). */
+  acceptStatuses?: number[];
 }
 
 export interface TransportResponse<T = any> {

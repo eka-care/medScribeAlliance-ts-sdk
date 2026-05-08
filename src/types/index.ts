@@ -3,7 +3,7 @@
  */
 
 // Common
-export type { ApiError, ErrorResponse } from './common';
+export type { ApiError, ErrorResponse, SDKResult } from './common';
 
 // Config
 export type { ScribeSDKConfig } from './config';

@@ -90,7 +90,9 @@ export class SessionManager {
       const id = sessionId ?? this.currentSession?.session_id;
 
       if (!id) {
-        throw new ScribeError('No active session to end. Provide a sessionId or start a session first.');
+        throw new ScribeError(
+          'No active session to end. Provide a sessionId or start a session first.'
+        );
       }
 
       this.validator.validateSessionId(id);
@@ -134,10 +136,7 @@ export class SessionManager {
    * Get the status of a session.
    * If no sessionId is provided, queries the current session.
    */
-  async getSessionStatus(
-    baseUrl: string,
-    sessionId?: string
-  ): Promise<GetSessionStatusResponse> {
+  async getSessionStatus(baseUrl: string, sessionId?: string): Promise<GetSessionStatusResponse> {
     try {
       const id = sessionId ?? this.currentSession?.session_id;
 
@@ -156,6 +155,8 @@ export class SessionManager {
       const response = await this.transport.request<GetSessionStatusResponse>({
         method: 'GET',
         url,
+        // TODO: what is 410
+        acceptStatuses: [410], // 410 returns ExpiredSessionResponse — valid data, not an error
       });
 
       this.validator.validateGetSessionStatusResponse(response.data);

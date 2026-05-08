@@ -92,7 +92,7 @@ export class HttpTransport implements ITransport {
       });
     }
 
-    if (response.ok) {
+    if (response.ok || config.acceptStatuses?.includes(response.status)) {
       return this.buildSuccessResponse<T>(response);
     }
 
