@@ -1,11 +1,24 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { ScribeClient, UploadType } from 'med-scribe-alliance-ts-sdk';
+import {
+  ScribeClient,
+  ScribeError,
+  AuthenticationError,
+  ForbiddenError,
+  RateLimitError,
+  SessionStatus,
+} from '../../../src';
 import type {
-  RecordingOptions,
-  GetSessionStatusResponse,
   CreateSessionResponse,
-  SDKEvent,
-} from 'med-scribe-alliance-ts-sdk';
+  GetSessionStatusResponse,
+  StopRecordingResult,
+  RecordingStateChangeEvent,
+  AudioEvent,
+  UploadEvent,
+  SessionEvent,
+  ErrorEvent,
+  TokenRequiredEvent,
+  SDKResult,
+} from '../../../src';
 import './App.css';
 
 type RecordingState = 'idle' | 'recording' | 'paused' | 'stopped';
@@ -22,6 +35,7 @@ function App() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [sessionInfo, setSessionInfo] = useState<CreateSessionResponse | null>(null);
+  const [stopResult, setStopResult] = useState<StopRecordingResult | null>(null);
   const [outputStatus, setOutputStatus] = useState<GetSessionStatusResponse | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isPolling, setIsPolling] = useState(false);
@@ -31,7 +45,7 @@ function App() {
   // Configuration
   const [config, setConfig] = useState({
     baseUrl: '',
-    apiKey: '',
+    accessToken: '',
     templates: 'eka_emr_template',
     model: '',
     debug: true,
@@ -47,9 +61,27 @@ function App() {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
   // Add log entry
   const addLog = useCallback((type: LogEntry['type'], message: string) => {
     setLogs((prev) => [...prev, { timestamp: new Date(), type, message }]);
+  }, []);
+
+  // Format error for logging
+  const formatError = useCallback((error: ScribeError): string => {
+    let msg = `[${error.code ?? 'unknown'}]`;
+    if (error.httpStatus) msg += ` HTTP ${error.httpStatus}`;
+    msg += ` ${error.message}`;
+    if (error instanceof AuthenticationError) msg = `Auth Failed: ${msg}`;
+    else if (error instanceof ForbiddenError) msg = `Forbidden: ${msg}`;
+    else if (error instanceof RateLimitError) msg = `Rate Limited: ${msg}`;
+    return msg;
   }, []);
 
   // Timer functions
@@ -94,7 +126,78 @@ function App() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Initialize SDK
+  // ─── Register SDK Callbacks ────────────────────────────────────────────────
+
+  const registerCallbacks = useCallback(
+    (client: ScribeClient) => {
+      client.registerCallback('onRecordingStateChange', (event: RecordingStateChangeEvent) => {
+        addLog('event', `Recording state: ${event.type}`);
+      });
+
+      client.registerCallback('onAudioEvent', (event: AudioEvent) => {
+        switch (event.type) {
+          case 'user_speech':
+            addLog('event', `User ${event.data.isSpeaking ? 'started' : 'stopped'} speaking`);
+            break;
+          case 'silence_warning':
+            addLog('event', `Silence detected for ${event.data.durationMs}ms`);
+            break;
+          case 'chunk_ready':
+            addLog('event', `Chunk ready: ${event.data.fileName}`);
+            break;
+          case 'frame_processed':
+            // High frequency — skip logging
+            break;
+        }
+      });
+
+      client.registerCallback('onUploadEvent', (event: UploadEvent) => {
+        switch (event.type) {
+          case 'progress':
+            addLog('info', `Upload: ${event.data.successCount}/${event.data.totalCount}`);
+            break;
+          case 'failed':
+            addLog('error', `Upload failed: ${event.data.fileName} — ${event.data.error}`);
+            break;
+        }
+      });
+
+      client.registerCallback('onSessionEvent', (event: SessionEvent) => {
+        switch (event.type) {
+          case 'created':
+            addLog('event', `Session created: ${event.data.session_id}`);
+            break;
+          case 'ended':
+            addLog(
+              'event',
+              `Session ended: ${event.data.session_id}, files: ${event.data.audio_files_received}`
+            );
+            break;
+        }
+      });
+
+      client.registerCallback('onError', (event: ErrorEvent) => {
+        addLog('error', `SDK Error [${event.error.code}]: ${event.error.message}`);
+      });
+
+      client.registerCallback('onTokenRequired', (event: TokenRequiredEvent) => {
+        addLog('event', 'Token refresh required — prompting...');
+        // In a real app, call your auth refresh endpoint.
+        // For demo, we re-use the current access token.
+        const token = config.accessToken;
+        if (token) {
+          event.resolve(token);
+          addLog('success', 'Token refreshed');
+        } else {
+          addLog('error', 'No token available to refresh');
+        }
+      });
+    },
+    [addLog, config.accessToken]
+  );
+
+  // ─── Initialize SDK ────────────────────────────────────────────────────────
+
   const initializeSDK = useCallback(async () => {
     if (!config.baseUrl) {
       addLog('error', 'Base URL is required');
@@ -107,59 +210,53 @@ function App() {
     try {
       // Reset any existing client
       if (clientRef.current) {
-        const resetResponse = await clientRef.current.reset();
-        console.log('SDK reset response (during init):', resetResponse);
+        await clientRef.current.reset();
         clientRef.current = null;
       }
 
-      console.log('Creating ScribeClient with config:', config);
-
       const client = new ScribeClient({
         baseUrl: config.baseUrl,
+        accessToken: config.accessToken || undefined,
+        debug: config.debug,
       });
 
-      // Setup event listeners
-      client.on('discovery:complete', (event: SDKEvent) => {
-        addLog('event', `Discovery complete: ${JSON.stringify(event.data?.service || {})}`);
-      });
+      // Register callbacks before init
+      registerCallbacks(client);
 
-      client.on('session:created', (event: SDKEvent) => {
-        addLog('event', `Session created: ${event.data?.session_id}`);
-      });
+      const initResult: SDKResult<void> = await client.init();
 
-      client.on('session:ended', (event: SDKEvent) => {
-        addLog('event', `Session ended: ${event.data?.session_id}`);
-      });
+      if (!initResult.success) {
+        addLog('error', `Init failed: ${formatError(initResult.error)}`);
+        setIsLoading(false);
+        return;
+      }
 
-      client.on('session:status_update', (event: SDKEvent) => {
-        addLog('event', `Status update: ${event.data?.status}`);
-      });
-
-      client.on('error', (event: SDKEvent) => {
-        addLog('error', `SDK Error: ${event.error?.message || 'Unknown error'}`);
-      });
-
-      const initResponse = await client.init();
-      console.log('SDK init response:', initResponse);
       clientRef.current = client;
       setIsInitialized(true);
       addLog('success', 'SDK initialized successfully');
+
+      // Show discovery info
+      const discovery = client.getDiscoveryDocument();
+      if (discovery) {
+        addLog('info', `Service: ${discovery.service?.name ?? discovery.protocol}`);
+      }
     } catch (error) {
+      // Only programmer errors throw (bad config)
       addLog(
         'error',
-        `Failed to initialize SDK: ${error instanceof Error ? error.message : String(error)}`
+        `Init threw: ${error instanceof Error ? error.message : String(error)}`
       );
     } finally {
       setIsLoading(false);
     }
-  }, [config, addLog]);
+  }, [config, addLog, formatError, registerCallbacks]);
 
-  // Request microphone permission
+  // ─── Microphone Permission ─────────────────────────────────────────────────
+
   const requestMicPermission = useCallback(async (): Promise<boolean> => {
     try {
       addLog('info', 'Requesting microphone permission...');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Stop tracks immediately - we just needed to request permission
       stream.getTracks().forEach((track) => track.stop());
       setHasMicPermission(true);
       addLog('success', 'Microphone permission granted');
@@ -168,13 +265,14 @@ function App() {
       setHasMicPermission(false);
       addLog(
         'error',
-        `Microphone permission denied: ${error instanceof Error ? error.message : String(error)}`
+        `Mic permission denied: ${error instanceof Error ? error.message : String(error)}`
       );
       return false;
     }
   }, [addLog]);
 
-  // Start Recording
+  // ─── Start Recording ──────────────────────────────────────────────────────
+
   const startRecording = useCallback(async () => {
     if (!clientRef.current) {
       addLog('error', 'SDK not initialized');
@@ -183,7 +281,6 @@ function App() {
 
     setIsLoading(true);
 
-    // Request microphone permission first
     const hasPermission = await requestMicPermission();
     if (!hasPermission) {
       setIsLoading(false);
@@ -192,32 +289,30 @@ function App() {
 
     addLog('info', 'Starting recording...');
 
-    try {
-      const options: RecordingOptions = {
-        templates: config.templates.split(',').map((t) => t.trim()),
-        model: config.model || undefined,
-        uploadType: UploadType.CHUNKED,
-        communicationProtocol: 'http',
-      };
+    const result: SDKResult<CreateSessionResponse> = await clientRef.current.startRecording({
+      templates: config.templates.split(',').map((t) => t.trim()),
+      model: config.model || undefined,
+      uploadType: 'chunked',
+      communicationProtocol: 'http',
+    });
 
-      const session = await clientRef.current.startRecording(options);
-      console.log('SDK startRecording response:', session);
-      setSessionInfo(session);
-      setRecordingState('recording');
-      setOutputStatus(null);
-      startTimer();
-      addLog('success', `Recording started - Session ID: ${session.session_id}`);
-    } catch (error) {
-      addLog(
-        'error',
-        `Failed to start recording: ${error instanceof Error ? error.message : String(error)}`
-      );
-    } finally {
+    if (!result.success) {
+      addLog('error', `Start failed: ${formatError(result.error)}`);
       setIsLoading(false);
+      return;
     }
-  }, [config, addLog, requestMicPermission, startTimer]);
 
-  // Stop Recording
+    setSessionInfo(result.data);
+    setRecordingState('recording');
+    setOutputStatus(null);
+    setStopResult(null);
+    startTimer();
+    addLog('success', `Recording started — Session: ${result.data.session_id}`);
+    setIsLoading(false);
+  }, [config, addLog, formatError, requestMicPermission, startTimer]);
+
+  // ─── Stop Recording ───────────────────────────────────────────────────────
+
   const stopRecording = useCallback(async () => {
     if (!clientRef.current) {
       addLog('error', 'SDK not initialized');
@@ -227,135 +322,141 @@ function App() {
     setIsLoading(true);
     addLog('info', 'Stopping recording...');
 
-    try {
-      const response = await clientRef.current.endRecording();
-      console.log('SDK endRecording response:', response);
-      setRecordingState('stopped');
-      stopTimer();
-      addLog('success', `Recording stopped - Files received: ${response.audio_files_received}`);
-    } catch (error) {
-      addLog(
-        'error',
-        `Failed to stop recording: ${error instanceof Error ? error.message : String(error)}`
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [addLog, stopTimer]);
+    const result: SDKResult<StopRecordingResult> = await clientRef.current.endRecording();
 
-  // Pause Recording
-  const pauseRecording = useCallback(() => {
-    if (!clientRef.current) {
-      addLog('error', 'SDK not initialized');
+    if (!result.success) {
+      addLog('error', `Stop failed: ${formatError(result.error)}`);
+      setIsLoading(false);
       return;
     }
 
-    try {
-      const response = clientRef.current.pauseRecording();
-      console.log('SDK pauseRecording response:', response);
-      setRecordingState('paused');
-      pauseTimer();
-      addLog('success', 'Recording paused');
-    } catch (error) {
-      addLog('error', `Failed to pause: ${error instanceof Error ? error.message : String(error)}`);
+    setStopResult(result.data);
+    setRecordingState('stopped');
+    stopTimer();
+    addLog(
+      'success',
+      `Recording stopped — ${result.data.totalFiles} files, ${result.data.failedUploads.length} failed`
+    );
+
+    if (result.data.failedUploads.length > 0) {
+      addLog('error', `Failed uploads: ${result.data.failedUploads.join(', ')}`);
     }
+
+    setIsLoading(false);
+  }, [addLog, formatError, stopTimer]);
+
+  // ─── Pause / Resume ───────────────────────────────────────────────────────
+
+  const pauseRecording = useCallback(() => {
+    if (!clientRef.current) return;
+    clientRef.current.pauseRecording();
+    setRecordingState('paused');
+    pauseTimer();
+    addLog('success', 'Recording paused');
   }, [addLog, pauseTimer]);
 
-  // Resume Recording
   const resumeRecording = useCallback(() => {
-    if (!clientRef.current) {
-      addLog('error', 'SDK not initialized');
-      return;
-    }
-
-    try {
-      const response = clientRef.current.resumeRecording();
-      console.log('SDK resumeRecording response:', response);
-      setRecordingState('recording');
-      resumeTimer();
-      addLog('success', 'Recording resumed');
-    } catch (error) {
-      addLog(
-        'error',
-        `Failed to resume: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
+    if (!clientRef.current) return;
+    clientRef.current.resumeRecording();
+    setRecordingState('recording');
+    resumeTimer();
+    addLog('success', 'Recording resumed');
   }, [addLog, resumeTimer]);
 
-  // Get Output Status
-  const getOutputStatus = useCallback(async () => {
-    if (!clientRef.current) {
-      addLog('error', 'SDK not initialized');
+  // ─── Get Session Status ───────────────────────────────────────────────────
+
+  const getSessionStatus = useCallback(async () => {
+    if (!clientRef.current || !sessionInfo) {
+      addLog('error', 'No active session');
       return;
     }
 
     setIsLoading(true);
-    addLog('info', 'Fetching output status...');
+    addLog('info', 'Fetching session status...');
 
-    try {
-      const status = await clientRef.current.getOutputStatus();
-      console.log('SDK getOutputStatus response:', status);
-      setOutputStatus(status);
-      addLog('success', `Status: ${status.status}`);
-    } catch (error) {
-      addLog(
-        'error',
-        `Failed to get status: ${error instanceof Error ? error.message : String(error)}`
-      );
-    } finally {
+    const result: SDKResult<GetSessionStatusResponse> =
+      await clientRef.current.getSessionStatus(sessionInfo.session_id);
+
+    if (!result.success) {
+      addLog('error', `Status failed: ${formatError(result.error)}`);
       setIsLoading(false);
+      return;
     }
-  }, [addLog]);
 
-  // Poll for completion
+    setOutputStatus(result.data);
+    addLog('success', `Status: ${result.data.status}`);
+
+    // Handle expired sessions (410 is returned as data, not error)
+    if (result.data.status === SessionStatus.EXPIRED) {
+      addLog('event', `Session expired at ${result.data.expires_at}`);
+    }
+
+    setIsLoading(false);
+  }, [addLog, formatError, sessionInfo]);
+
+  // ─── Poll for Completion ──────────────────────────────────────────────────
+
   const pollForCompletion = useCallback(async () => {
-    if (!clientRef.current) {
-      addLog('error', 'SDK not initialized');
+    if (!clientRef.current || !sessionInfo) {
+      addLog('error', 'No active session');
       return;
     }
 
     setIsPolling(true);
     addLog('info', 'Polling for completion...');
 
-    try {
-      const status = await clientRef.current.pollForCompletion(undefined, {
+    const result: SDKResult<GetSessionStatusResponse> =
+      await clientRef.current.pollForCompletion(sessionInfo.session_id, {
         maxAttempts: 60,
         intervalMs: 2000,
-        onProgress: (s) => {
-          console.log('SDK pollForCompletion progress:', s);
-          addLog('info', `Processing... Status: ${s.status}`);
-          setOutputStatus(s);
+        onProgress: (status) => {
+          addLog('info', `Processing... status: ${status.status}`);
+          setOutputStatus(status);
         },
       });
-      console.log('SDK pollForCompletion response:', status);
-      setOutputStatus(status);
-      addLog('success', 'Processing complete!');
-    } catch (error) {
-      addLog('error', `Polling failed: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      setIsPolling(false);
-    }
-  }, [addLog]);
 
-  // Reset
+    if (!result.success) {
+      addLog('error', `Polling failed: ${formatError(result.error)}`);
+      setIsPolling(false);
+      return;
+    }
+
+    setOutputStatus(result.data);
+
+    if (result.data.status === SessionStatus.COMPLETED) {
+      addLog('success', 'Processing complete!');
+    } else if (result.data.status === SessionStatus.PARTIAL) {
+      addLog('event', 'Partial results received');
+    } else if (result.data.status === SessionStatus.FAILED) {
+      addLog('error', `Processing failed: ${result.data.error?.message ?? 'Unknown'}`);
+    } else if (result.data.status === SessionStatus.EXPIRED) {
+      addLog('event', 'Session expired');
+    }
+
+    setIsPolling(false);
+  }, [addLog, formatError, sessionInfo]);
+
+  // ─── Reset ────────────────────────────────────────────────────────────────
+
   const resetSDK = useCallback(async () => {
     if (clientRef.current) {
-      const response = await clientRef.current.reset();
-      console.log('SDK reset response:', response);
+      await clientRef.current.reset();
       clientRef.current = null;
     }
     setIsInitialized(false);
     setRecordingState('idle');
     setSessionInfo(null);
+    setStopResult(null);
     setOutputStatus(null);
     resetTimer();
     addLog('info', 'SDK reset');
   }, [addLog, resetTimer]);
 
-  // Clear logs
   const clearLogs = useCallback(() => {
     setLogs([]);
   }, []);
+
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div className="app">
@@ -376,18 +477,18 @@ function App() {
                 type="text"
                 value={config.baseUrl}
                 onChange={(e) => setConfig((c) => ({ ...c, baseUrl: e.target.value }))}
-                placeholder="https://api.example.com"
+                placeholder="https://api.eka.care/voice/api/v2"
                 disabled={isInitialized}
               />
             </div>
             <div className="form-group">
-              <label htmlFor="apiKey">API Key</label>
+              <label htmlFor="accessToken">Access Token</label>
               <input
-                id="apiKey"
+                id="accessToken"
                 type="password"
-                value={config.apiKey}
-                onChange={(e) => setConfig((c) => ({ ...c, apiKey: e.target.value }))}
-                placeholder="Optional"
+                value={config.accessToken}
+                onChange={(e) => setConfig((c) => ({ ...c, accessToken: e.target.value }))}
+                placeholder="Bearer token (optional)"
                 disabled={isInitialized}
               />
             </div>
@@ -506,10 +607,10 @@ function App() {
           <div className="button-row">
             <button
               className="btn btn-primary"
-              onClick={getOutputStatus}
+              onClick={getSessionStatus}
               disabled={!isInitialized || isLoading || !sessionInfo}
             >
-              Get Output Status
+              Get Session Status
             </button>
             <button
               className="btn btn-secondary"
@@ -529,9 +630,16 @@ function App() {
             </div>
           )}
 
+          {stopResult && (
+            <div className="info-card">
+              <h3>Stop Result</h3>
+              <pre>{JSON.stringify(stopResult, null, 2)}</pre>
+            </div>
+          )}
+
           {outputStatus && (
             <div className="info-card">
-              <h3>Output Status</h3>
+              <h3>Session Status</h3>
               <pre>{JSON.stringify(outputStatus, null, 2)}</pre>
             </div>
           )}
@@ -559,16 +667,7 @@ function App() {
       </main>
 
       <footer className="footer">
-        <p>
-          SDK Package:{' '}
-          <a
-            href="https://www.npmjs.com/package/med-scribe-alliance-ts-sdk"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            med-scribe-alliance-ts-sdk
-          </a>
-        </p>
+        <p>MedScribe Alliance TS SDK — Demo App</p>
       </footer>
     </div>
   );

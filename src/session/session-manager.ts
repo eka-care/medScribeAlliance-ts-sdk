@@ -35,6 +35,7 @@ export class SessionManager {
     this.debug = debug;
   }
 
+  // TODO: session-id is created by server not client
   /**
    * Create a new scribe session.
    * Validates the request structure, sends to server, validates response.

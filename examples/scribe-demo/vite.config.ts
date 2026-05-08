@@ -1,12 +1,16 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import path from 'path';
 
-// https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      // Resolve the SDK from local source so we don't need to npm publish first
+      'med-scribe-alliance-ts-sdk': path.resolve(__dirname, '../../src'),
+    },
+  },
   server: {
-    // host: 'sanika.eka.care',
-    // port: 5173, // optional
     strictPort: true,
     allowedHosts: ['af2bdc3e7766.ngrok-free.app', 'sanika.eka.care'],
   },
