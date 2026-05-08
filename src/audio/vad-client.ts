@@ -53,6 +53,7 @@ export class VadClient {
   private longThreshold: number;
   private frameSize: number;
   private speechPadFrames: number;
+  private samplingRate: number;
 
   // MicVAD instance
   private micVad: MicVAD | null = null;
@@ -73,6 +74,7 @@ export class VadClient {
 
   constructor(config: VadConfig, callbackRegistry: CallbackRegistry) {
     const sr = config.samplingRate;
+    this.samplingRate = sr;
     this.prefLengthSamples = config.prefChunkLength * sr;
     this.despLengthSamples = config.despChunkLength * sr;
     this.maxLengthSamples = config.maxChunkLength * sr;
@@ -213,7 +215,7 @@ export class VadClient {
     maxChunkLength?: number;
     samplingRate?: number;
   }): void {
-    const sr = config.samplingRate ?? this.prefLengthSamples;
+    const sr = config.samplingRate ?? this.samplingRate;
     if (config.prefChunkLength !== undefined) {
       this.prefLengthSamples = config.prefChunkLength * sr;
     }

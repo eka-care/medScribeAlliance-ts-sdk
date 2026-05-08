@@ -17,7 +17,13 @@ import {
   IpcBridge,
   IpcRequest,
 } from './transport.interface';
-import { TransportError, AuthenticationError, ForbiddenError, RateLimitError, ScribeError } from '../utils/errors';
+import {
+  TransportError,
+  AuthenticationError,
+  ForbiddenError,
+  RateLimitError,
+  ScribeError,
+} from '../utils/errors';
 import { retryWithBackoff, RetryOptions } from '../utils/retry';
 import { HttpStatus } from '../constants';
 import type { IpcResponse } from '../types';
@@ -181,7 +187,7 @@ export class IpcTransport implements ITransport {
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(correlationId);
         reject(
-          new TransportError('IPC request timed out after 30s', {
+          new TransportError('IPC request timed out after 15s', {
             correlationId,
             url: request.url,
           })

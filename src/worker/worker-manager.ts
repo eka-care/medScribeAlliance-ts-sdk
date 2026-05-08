@@ -101,7 +101,7 @@ export class WorkerManager {
     this.uploadHeaders = headers;
   }
 
-  // FIX: file upload via multipart form-data or raw binary body
+  // TODO: file upload via multipart form-data or raw binary body
   /**
    * Compress raw audio to MP3 and upload.
    * Called by ChunkedRecorder each time a clip point is detected.

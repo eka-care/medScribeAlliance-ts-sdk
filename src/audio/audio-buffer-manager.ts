@@ -9,8 +9,6 @@
  * - Reset buffer state after a chunk is clipped (without re-allocating)
  */
 
-import { SAMPLING_RATE } from './constants';
-
 export class AudioBufferManager {
   private buffer: Float32Array;
   private currentSampleLength: number = 0;
@@ -80,7 +78,7 @@ export class AudioBufferManager {
   calculateChunkTimestamps(totalRawSamples: number): { start: string; end: string } {
     try {
       const chunkDuration = this.getDurationInSeconds();
-      const endSeconds = totalRawSamples / SAMPLING_RATE;
+      const endSeconds = totalRawSamples / this.samplingRate;
       const startSeconds = endSeconds - chunkDuration;
 
       return {

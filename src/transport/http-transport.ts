@@ -127,10 +127,7 @@ export class HttpTransport implements ITransport {
     return headers;
   }
 
-  private buildRequestInit(
-    config: TransportRequest,
-    headers: Record<string, string>
-  ): RequestInit {
+  private buildRequestInit(config: TransportRequest, headers: Record<string, string>): RequestInit {
     const init: RequestInit = {
       method: config.method,
       headers,
