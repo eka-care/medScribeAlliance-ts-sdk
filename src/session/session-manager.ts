@@ -1,0 +1,273 @@
+/**
+ * SessionManager — handles session lifecycle via transport.
+ *
+ * - createSession()      — POST /sessions
+ * - endSession()         — POST /sessions/{id}/end
+ * - getSessionStatus()   — GET /sessions/{id}
+ * - pollForCompletion()  — polls getSessionStatus until terminal state
+ *
+ * All requests and responses are validated through the Validator.
+ */
+
+import {
+  ITransport,
+  CreateSessionRequest,
+  CreateSessionResponse,
+  EndSessionRequest,
+  EndSessionResponse,
+  GetSessionStatusResponse,
+  PollOptions,
+  ResolvedConfig,
+} from '../types';
+import { SessionStatus, DEFAULT_POLL_MAX_ATTEMPTS, DEFAULT_POLL_INTERVAL_MS } from '../constants';
+import { Validator } from '../validation/validator';
+import { ScribeError, SessionNotFoundError, SessionExpiredError } from '../utils/errors';
+
+export class SessionManager {
+  private transport: ITransport;
+  private validator: Validator;
+  private debug: boolean;
+
+  private currentSession: CreateSessionResponse | null = null;
+
+  constructor(transport: ITransport, validator: Validator, debug: boolean = false) {
+    this.transport = transport;
+    this.validator = validator;
+    this.debug = debug;
+  }
+
+  /**
+   * Create a new scribe session.
+   * Validates the request structure, sends to server, validates response.
+   */
+  async createSession(
+    baseUrl: string,
+    request: CreateSessionRequest
+  ): Promise<CreateSessionResponse> {
+    try {
+      this.validator.validateCreateSessionRequest(request);
+
+      const url = `${baseUrl}/sessions`;
+
+      if (this.debug) {
+        console.log('[ScribeSDK] Creating session:', url);
+      }
+
+      const response = await this.transport.request<CreateSessionResponse>({
+        method: 'POST',
+        url,
+        body: request,
+      });
+
+      this.validator.validateCreateSessionResponse(response.data);
+
+      this.currentSession = response.data;
+
+      if (this.debug) {
+        console.log('[ScribeSDK] Session created:', response.data.session_id);
+      }
+
+      return response.data;
+    } catch (error) {
+      if (error instanceof ScribeError) {
+        throw error;
+      }
+      throw new ScribeError(
+        `Failed to create session: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  /**
+   * End an active session.
+   * If no sessionId is provided, ends the current session.
+   */
+  async endSession(
+    baseUrl: string,
+    sessionId?: string,
+    request?: EndSessionRequest
+  ): Promise<EndSessionResponse> {
+    try {
+      const id = sessionId ?? this.currentSession?.session_id;
+
+      if (!id) {
+        throw new ScribeError('No active session to end. Provide a sessionId or start a session first.');
+      }
+
+      this.validator.validateSessionId(id);
+
+      const url = `${baseUrl}/sessions/${id}/end`;
+
+      if (this.debug) {
+        console.log('[ScribeSDK] Ending session:', id);
+      }
+
+      const response = await this.transport.request<EndSessionResponse>({
+        method: 'POST',
+        url,
+        body: request ?? {},
+      });
+
+      this.validator.validateEndSessionResponse(response.data);
+
+      // Clear current session if we just ended it
+      if (this.currentSession?.session_id === id) {
+        this.currentSession = null;
+      }
+
+      if (this.debug) {
+        console.log('[ScribeSDK] Session ended:', id, response.data.status);
+      }
+
+      return response.data;
+    } catch (error) {
+      if (error instanceof ScribeError) {
+        throw error;
+      }
+      throw new ScribeError(
+        `Failed to end session: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  /**
+   * Get the status of a session.
+   * If no sessionId is provided, queries the current session.
+   */
+  async getSessionStatus(
+    baseUrl: string,
+    sessionId?: string
+  ): Promise<GetSessionStatusResponse> {
+    try {
+      const id = sessionId ?? this.currentSession?.session_id;
+
+      if (!id) {
+        throw new ScribeError('No active session. Provide a sessionId or start a session first.');
+      }
+
+      this.validator.validateSessionId(id);
+
+      const url = `${baseUrl}/sessions/${id}`;
+
+      if (this.debug) {
+        console.log('[ScribeSDK] Getting session status:', id);
+      }
+
+      const response = await this.transport.request<GetSessionStatusResponse>({
+        method: 'GET',
+        url,
+      });
+
+      this.validator.validateGetSessionStatusResponse(response.data);
+
+      if (this.debug) {
+        console.log('[ScribeSDK] Session status:', id, response.data.status);
+      }
+
+      return response.data;
+    } catch (error) {
+      if (error instanceof ScribeError) {
+        throw error;
+      }
+      throw new ScribeError(
+        `Failed to get session status: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  /**
+   * Poll for session completion.
+   * Keeps checking getSessionStatus until the session reaches a terminal state
+   * (completed, partial, or failed) or the max attempts are exhausted.
+   */
+  async pollForCompletion(
+    baseUrl: string,
+    sessionId?: string,
+    options?: PollOptions
+  ): Promise<GetSessionStatusResponse> {
+    try {
+      const id = sessionId ?? this.currentSession?.session_id;
+
+      if (!id) {
+        throw new ScribeError('No active session. Provide a sessionId or start a session first.');
+      }
+
+      const maxAttempts = options?.maxAttempts ?? DEFAULT_POLL_MAX_ATTEMPTS;
+      const intervalMs = options?.intervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+
+      if (this.debug) {
+        console.log('[ScribeSDK] Polling for completion:', id, { maxAttempts, intervalMs });
+      }
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const status = await this.getSessionStatus(baseUrl, id);
+
+        // Notify progress callback
+        if (options?.onProgress) {
+          try {
+            options.onProgress(status);
+          } catch (error) {
+            console.error('[ScribeSDK] Error in poll onProgress callback:', error);
+          }
+        }
+
+        // Check for terminal states
+        if (this.isTerminalStatus(status.status)) {
+          if (this.debug) {
+            console.log('[ScribeSDK] Poll complete:', id, status.status, `(attempt ${attempt})`);
+          }
+          return status;
+        }
+
+        // Wait before next poll (skip wait on last attempt)
+        if (attempt < maxAttempts) {
+          await this.sleep(intervalMs);
+        }
+      }
+
+      throw new ScribeError(
+        `Polling timed out after ${maxAttempts} attempts for session '${id}'`,
+        'polling_timeout',
+        undefined,
+        { session_id: id, max_attempts: maxAttempts }
+      );
+    } catch (error) {
+      if (error instanceof ScribeError) {
+        throw error;
+      }
+      throw new ScribeError(
+        `Failed to poll session: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  /**
+   * Get the current active session, if any.
+   */
+  getCurrentSession(): CreateSessionResponse | null {
+    return this.currentSession;
+  }
+
+  /**
+   * Clear the current session reference.
+   * Used when recording is stopped or session is explicitly cleared.
+   */
+  clearCurrentSession(): void {
+    this.currentSession = null;
+  }
+
+  /**
+   * Check if a session status is terminal (no more processing will happen).
+   */
+  private isTerminalStatus(status: string): boolean {
+    return (
+      status === SessionStatus.COMPLETED ||
+      status === SessionStatus.PARTIAL ||
+      status === SessionStatus.FAILED
+    );
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+}
