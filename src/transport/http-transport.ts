@@ -12,6 +12,7 @@ import { HttpStatus } from '../constants';
 import {
   ScribeError,
   AuthenticationError,
+  ForbiddenError,
   RateLimitError,
   TransportError,
 } from '../utils/errors';
@@ -21,11 +22,18 @@ export class HttpTransport implements ITransport {
   private apiKey?: string;
   private accessToken?: string;
   private debug: boolean;
+  private onUnauthorized?: () => void;
 
-  constructor(options: { apiKey?: string; accessToken?: string; debug?: boolean }) {
+  constructor(options: {
+    apiKey?: string;
+    accessToken?: string;
+    debug?: boolean;
+    onUnauthorized?: () => void;
+  }) {
     this.apiKey = options.apiKey;
     this.accessToken = options.accessToken;
     this.debug = options.debug ?? false;
+    this.onUnauthorized = options.onUnauthorized;
   }
 
   setAuthToken(token: string): void {
@@ -185,7 +193,15 @@ export class HttpTransport implements ITransport {
 
     // Map to specific error types
     if (status === HttpStatus.UNAUTHORIZED) {
+      this.onUnauthorized?.();
       throw new AuthenticationError(errorMessage, {
+        url: config.url,
+        ...errorBody?.error?.details,
+      });
+    }
+
+    if (status === HttpStatus.FORBIDDEN) {
+      throw new ForbiddenError(errorMessage, {
         url: config.url,
         ...errorBody?.error?.details,
       });

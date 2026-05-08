@@ -17,7 +17,7 @@ import {
   IpcBridge,
   IpcRequest,
 } from './transport.interface';
-import { TransportError, AuthenticationError, RateLimitError, ScribeError } from '../utils/errors';
+import { TransportError, AuthenticationError, ForbiddenError, RateLimitError, ScribeError } from '../utils/errors';
 import { retryWithBackoff, RetryOptions } from '../utils/retry';
 import { HttpStatus } from '../constants';
 import type { IpcResponse } from '../types';
@@ -36,16 +36,20 @@ export class IpcTransport implements ITransport {
   private debug: boolean;
   private correlationCounter = 0;
 
+  private onUnauthorized?: () => void;
+
   constructor(options: {
     bridge: IpcBridge;
     apiKey?: string;
     accessToken?: string;
     debug?: boolean;
+    onUnauthorized?: () => void;
   }) {
     this.bridge = options.bridge;
     this.apiKey = options.apiKey;
     this.accessToken = options.accessToken;
     this.debug = options.debug ?? false;
+    this.onUnauthorized = options.onUnauthorized;
 
     // Listen for responses from the host
     this.bridge.onResponse((response: IpcResponse) => {
@@ -231,7 +235,15 @@ export class IpcTransport implements ITransport {
     const errorCode = body?.error?.code ?? 'http_error';
 
     if (status === HttpStatus.UNAUTHORIZED) {
+      this.onUnauthorized?.();
       throw new AuthenticationError(errorMessage, {
+        url: config.url,
+        ...body?.error?.details,
+      });
+    }
+
+    if (status === HttpStatus.FORBIDDEN) {
+      throw new ForbiddenError(errorMessage, {
         url: config.url,
         ...body?.error?.details,
       });

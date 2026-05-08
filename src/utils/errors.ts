@@ -66,6 +66,13 @@ export class AuthenticationError extends ScribeError {
   }
 }
 
+export class ForbiddenError extends ScribeError {
+  constructor(message: string, details?: Record<string, any>) {
+    super(message, ErrorCode.FORBIDDEN, HttpStatus.FORBIDDEN, details);
+    this.name = 'ForbiddenError';
+  }
+}
+
 export class SessionNotFoundError extends ScribeError {
   constructor(sessionId: string) {
     super(

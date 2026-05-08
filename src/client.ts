@@ -66,12 +66,12 @@ export class ScribeClient {
       ...config,
     };
 
-    // 1. Create transport based on mode
-    this.transport = this.createTransport();
-
-    // 2. Create shared infrastructure
+    // 1. Create shared infrastructure (before transport — transport needs onUnauthorized callback)
     this.callbackRegistry = new CallbackRegistry();
     this.validator = new Validator();
+
+    // 2. Create transport based on mode
+    this.transport = this.createTransport();
 
     // 3. Create managers
     this.discoveryManager = new DiscoveryManager(this.transport, this.validator, this.config.debug);
@@ -292,6 +292,14 @@ export class ScribeClient {
   // --- Private ---
 
   private createTransport(): ITransport {
+    const onUnauthorized = () => {
+      this.callbackRegistry.dispatch('onTokenRequired', {
+        resolve: (newToken: string) => {
+          this.setAccessToken(newToken);
+        },
+      });
+    };
+
     if (this.config.mode === TransportMode.IPC) {
       if (!this.config.ipcTransport) {
         throw new ValidationError('ipcTransport (IpcBridge) is required when mode is "ipc"');
@@ -301,6 +309,7 @@ export class ScribeClient {
         apiKey: this.config.apiKey,
         accessToken: this.config.accessToken,
         debug: this.config.debug,
+        onUnauthorized,
       });
     }
 
@@ -308,6 +317,7 @@ export class ScribeClient {
       apiKey: this.config.apiKey,
       accessToken: this.config.accessToken,
       debug: this.config.debug,
+      onUnauthorized,
     });
   }
 

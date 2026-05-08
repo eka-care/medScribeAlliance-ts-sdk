@@ -102,6 +102,7 @@ export {
   ValidationError,
   DiscoveryError,
   AuthenticationError,
+  ForbiddenError,
   SessionNotFoundError,
   SessionExpiredError,
   RateLimitError,
