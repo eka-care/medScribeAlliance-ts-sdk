@@ -13,6 +13,7 @@ import { ResolvedConfig, RecordingOptions } from '../types';
 import { DiscoveryResponseSchema } from './schemas/discovery-schema';
 import {
   CreateSessionRequestSchema,
+  EndSessionRequestSchema,
   CreateSessionResponseSchema,
   EndSessionResponseSchema,
   GetSessionStatusResponseSchema,
@@ -29,6 +30,10 @@ export class Validator {
 
   validateCreateSessionRequest(data: unknown): void {
     this.parseWithValidationError(CreateSessionRequestSchema, data, 'Invalid CreateSessionRequest');
+  }
+
+  validateEndSessionRequest(data: unknown): void {
+    this.parseWithValidationError(EndSessionRequestSchema, data, 'Invalid EndSessionRequest');
   }
 
   validateCreateSessionResponse(data: unknown): void {

@@ -23,7 +23,7 @@ export interface CreateSessionResponse {
 }
 
 export interface EndSessionRequest {
-  audio_files_sent?: number;
+  audio_files_sent: number;
 }
 
 export interface EndSessionResponse {

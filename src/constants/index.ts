@@ -13,15 +13,19 @@ export const DISCOVERY_CACHE_TTL_MS = 3600 * 1000;
 
 export enum SessionStatus {
   CREATED = 'created',
+  RECORDING = 'recording',
+  INITIALIZED = 'initialized',
   PROCESSING = 'processing',
   COMPLETED = 'completed',
   PARTIAL = 'partial',
   FAILED = 'failed',
+  EXPIRED = 'expired',
 }
 
 export enum TemplateStatus {
   SUCCESS = 'success',
   FAILED = 'failed',
+  PROCESSING = 'processing',
 }
 
 export enum UploadType {

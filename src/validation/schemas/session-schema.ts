@@ -1,6 +1,7 @@
 /**
  * Session request/response validation schemas (MedScribe Alliance Protocol).
  *
+ * Aligned with protocol spec v0.1 (spec/06-sessions.md).
  * Schema validation only checks structure and types.
  * Value validation (e.g., is this upload_type supported?) happens
  * in discovery-driven validation via Validator.validateAgainstDiscovery().
@@ -27,38 +28,46 @@ export const CreateSessionRequestSchema = z.object({
 
 export type ValidatedCreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>;
 
+export const EndSessionRequestSchema = z.object({
+  audio_files_sent: z.number().int().min(0, 'audio_files_sent must be a non-negative integer'),
+});
+
 // --- Response schemas ---
 
+// Spec: session_id, status, created_at, expires_at, upload_url are all REQUIRED
 export const CreateSessionResponseSchema = z.object({
   session_id: z.string().min(1, 'session_id is required'),
   status: z.string(),
-  created_at: z.string().optional(),
-  expires_at: z.string().optional(),
+  created_at: z.string(),
+  expires_at: z.string(),
   upload_url: z.string().min(1, 'upload_url is required'),
 });
 
+// Spec: session_id, status, message, audio_files_received, audio_files are all REQUIRED
 export const EndSessionResponseSchema = z.object({
   session_id: z.string().min(1, 'session_id is required'),
   status: z.string(),
   message: z.string(),
-  audio_files_received: z.number().optional(),
-  audio_files: z.array(z.string()).optional(),
+  audio_files_received: z.number().int(),
+  audio_files: z.array(z.string()),
 });
 
+// Spec: session_id, status, created_at, audio_files_received, audio_files are REQUIRED
+// Other fields are optional and depend on session state
 export const GetSessionStatusResponseSchema = z.object({
   session_id: z.string().min(1, 'session_id is required'),
   status: z.string(),
-  created_at: z.string().optional(),
+  created_at: z.string(),
   expires_at: z.string().optional(),
   completed_at: z.string().optional(),
   model_used: z.string().optional(),
   language_detected: z.string().optional(),
-  audio_files_received: z.number().optional(),
-  audio_files: z.array(z.string()).optional(),
-  audio_files_processed: z.number().optional(),
+  audio_files_received: z.number().int(),
+  audio_files: z.array(z.string()),
+  audio_files_processed: z.number().int().optional(),
   additional_data: z.record(z.string(), z.any()).optional(),
   templates: z.record(z.string(), z.any()).optional(),
-  transcript: z.string().optional(),
+  transcript: z.string().nullable().optional(),
   processing_errors: z
     .array(
       z.object({

@@ -17,11 +17,10 @@ import {
   EndSessionResponse,
   GetSessionStatusResponse,
   PollOptions,
-  ResolvedConfig,
 } from '../types';
 import { SessionStatus, DEFAULT_POLL_MAX_ATTEMPTS, DEFAULT_POLL_INTERVAL_MS } from '../constants';
 import { Validator } from '../validation/validator';
-import { ScribeError, SessionNotFoundError, SessionExpiredError } from '../utils/errors';
+import { ScribeError } from '../utils/errors';
 
 export class SessionManager {
   private transport: ITransport;
@@ -84,8 +83,8 @@ export class SessionManager {
    */
   async endSession(
     baseUrl: string,
-    sessionId?: string,
-    request?: EndSessionRequest
+    request: EndSessionRequest,
+    sessionId?: string
   ): Promise<EndSessionResponse> {
     try {
       const id = sessionId ?? this.currentSession?.session_id;
@@ -95,6 +94,7 @@ export class SessionManager {
       }
 
       this.validator.validateSessionId(id);
+      this.validator.validateEndSessionRequest(request);
 
       const url = `${baseUrl}/sessions/${id}/end`;
 
@@ -105,7 +105,7 @@ export class SessionManager {
       const response = await this.transport.request<EndSessionResponse>({
         method: 'POST',
         url,
-        body: request ?? {},
+        body: request,
       });
 
       this.validator.validateEndSessionResponse(response.data);
@@ -263,7 +263,8 @@ export class SessionManager {
     return (
       status === SessionStatus.COMPLETED ||
       status === SessionStatus.PARTIAL ||
-      status === SessionStatus.FAILED
+      status === SessionStatus.FAILED ||
+      status === SessionStatus.EXPIRED
     );
   }
 
