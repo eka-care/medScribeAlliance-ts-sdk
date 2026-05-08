@@ -25,7 +25,12 @@
  *   4. Returns failed uploads + total file count
  */
 
-import type { IRecorder, RecorderConfig, StopRecordingResult, AudioChunkInfo } from '../types/recording';
+import type {
+  IRecorder,
+  RecorderConfig,
+  StopRecordingResult,
+  AudioChunkInfo,
+} from '../types/recording';
 import type { CreateSessionResponse } from '../types/session';
 import type { ITransport } from '../types/transport';
 import { CallbackRegistry } from '../callbacks/callback-registry';
@@ -79,7 +84,12 @@ export class ChunkedRecorder implements IRecorder {
     this.vadClient = new VadClient(fullVadConfig, callbackRegistry);
 
     // Create WorkerManager — handles MP3 compression + upload via ITransport
-    this.workerManager = new WorkerManager(callbackRegistry, this.fileManager, transport, workerConfig);
+    this.workerManager = new WorkerManager(
+      callbackRegistry,
+      this.fileManager,
+      transport,
+      workerConfig
+    );
 
     // Wire VadClient to audio pipeline
     this.wireVadCallbacks();
@@ -96,10 +106,7 @@ export class ChunkedRecorder implements IRecorder {
       }
 
       // Configure WorkerManager with upload destination
-      this.workerManager.setUploadConfig(
-        session.upload_url,
-        config.uploadHeaders
-      );
+      this.workerManager.setUploadConfig(session.upload_url, config.uploadHeaders);
 
       this.initialized = true;
     } catch (error) {
@@ -267,7 +274,9 @@ export class ChunkedRecorder implements IRecorder {
 
       const fileName = this.fileManager.getNextFileName();
       const rawSampleDetails = this.fileManager.getRawSampleDetails();
-      const timestamps = this.bufferManager.calculateChunkTimestamps(rawSampleDetails.totalRawSamples);
+      const timestamps = this.bufferManager.calculateChunkTimestamps(
+        rawSampleDetails.totalRawSamples
+      );
 
       // Register chunk in file manager as pending
       const chunkInfo: AudioChunkInfo = {

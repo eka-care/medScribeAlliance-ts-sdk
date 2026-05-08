@@ -1,50 +1,125 @@
 /**
- * Scribe EMR Protocol SDK
+ * MedScribe Alliance TS SDK
  * TypeScript SDK for the MedScribe Alliance Protocol
  *
  * @packageDocumentation
  */
 
-// Main client
-export { ScribeClient, getScribeInstance } from './client';
+// --- Main client ---
+export { ScribeClient } from './client';
 
-// Types
+// --- Types ---
 export type {
+  // Config
   ScribeSDKConfig,
-  RecordingOptions,
+
+  // Transport
+  ITransport,
+  TransportRequest,
+  TransportResponse,
+  IpcBridge,
+  IpcRequest,
+  IpcResponse,
+
+  // Discovery
   DiscoveryDocument,
-  CreateSessionResponse,
-  GetSessionStatusResponse,
-  EndSessionResponse,
-  TemplatesOutput,
-  TemplateEntry,
-  ApiError,
-  SDKEvent,
-  SDKEventType,
   ServiceInfo,
   EndpointsInfo,
   AuthenticationInfo,
   CapabilitiesInfo,
   ModelConfig,
   LanguagesInfo,
+  ResolvedConfig,
+
+  // Session
   CreateSessionRequest,
+  CreateSessionResponse,
+  EndSessionRequest,
+  EndSessionResponse,
+  GetSessionStatusResponse,
+  TemplatesOutput,
+  TemplateEntry,
   TemplateError,
   ProcessingError,
+  PollOptions,
+
+  // Recording
+  RecordingOptions,
+  RecorderConfig,
+  IRecorder,
+  StopRecordingResult,
+  AudioChunkInfo,
+
+  // Callbacks
+  CallbackMap,
+  CallbackName,
+  RecordingState,
+  RecordingStateChangeEvent,
+  AudioEvent,
+  AudioEventType,
+  AudioEventUserSpeech,
+  AudioEventSilenceWarning,
+  AudioEventChunkReady,
+  AudioEventFrameProcessed,
+  UploadEvent,
+  UploadEventType,
+  UploadEventProgress,
+  UploadEventFailed,
+  UploadEventRetry,
+  SessionEvent,
+  SessionEventType,
+  SessionEventCreated,
+  SessionEventEnded,
+  SessionEventStatusUpdate,
+  SessionEventPartialResult,
+  ErrorEvent,
+  ErrorEventType,
+  TokenRequiredEvent,
+
+  // Worker
+  MainToWorkerMessage,
+  WorkerToMainMessage,
+
+  // Common
+  ApiError,
   ErrorResponse,
 } from './types';
 
-// Constants
-export { SessionStatus, TemplateStatus, UploadType, ErrorCode, HttpStatus } from './constants';
+// --- Constants & Enums ---
+export {
+  SessionStatus,
+  TemplateStatus,
+  UploadType,
+  CommunicationProtocol,
+  TransportMode,
+  ErrorCode,
+  HttpStatus,
+} from './constants';
 
-// Errors
+// --- Errors ---
 export {
   ScribeError,
+  ValidationError,
+  DiscoveryError,
   AuthenticationError,
   SessionNotFoundError,
   SessionExpiredError,
   RateLimitError,
-  ValidationError,
+  TransportError,
+  WorkerError,
+  UploadError,
 } from './utils/errors';
 
-// Validator
-export { schemaValidator } from './utils/validator';
+// --- Managers (for advanced usage / testing) ---
+export { CallbackRegistry } from './callbacks/callback-registry';
+export { DiscoveryManager } from './discovery/discovery-manager';
+export { SessionManager } from './session/session-manager';
+export { RecordingManager } from './recording/recording-manager';
+export type { RecordingManagerConfig } from './recording/recording-manager';
+
+// --- Transport implementations (for advanced usage) ---
+export { HttpTransport } from './transport/http-transport';
+export { IpcTransport } from './transport/ipc-transport';
+
+// --- Validation ---
+export { Validator } from './validation/validator';

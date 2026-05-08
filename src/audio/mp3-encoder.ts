@@ -48,7 +48,7 @@ export function encodeToMp3(
       return null;
     }
 
-    return new Blob(mp3Chunks, { type: AUDIO_EXTENSION_TYPE_MAP[OUTPUT_FORMAT] });
+    return new Blob(mp3Chunks as BlobPart[], { type: AUDIO_EXTENSION_TYPE_MAP[OUTPUT_FORMAT] });
   } catch (error) {
     console.error('[ScribeSDK] MP3 encoding failed:', error);
     return null;

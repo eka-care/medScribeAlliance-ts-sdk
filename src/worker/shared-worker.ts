@@ -202,7 +202,13 @@ function handleMessage(message: MainToWorkerMessage): void {
 
 // --- SharedWorker entry point ---
 
-// SharedWorkerGlobalScope
+// SharedWorkerGlobalScope type — not available in standard lib, declared here
+// since this file is compiled as a worker entry point.
+declare interface SharedWorkerGlobalScope {
+  onconnect: ((event: MessageEvent) => void) | null;
+  close(): void;
+}
+
 const _self = self as unknown as SharedWorkerGlobalScope;
 
 _self.onconnect = (event: MessageEvent) => {
