@@ -13,7 +13,9 @@ const ModelSchema = z.object({
   id: z.string().min(1, 'models[].id is required'),
   display_name: z.string().optional(),
   languages: z.array(z.string()).optional(),
-  max_session_duration_seconds: z.number({ error: 'models[].max_session_duration_seconds must be a number' }),
+  max_session_duration_seconds: z.number({
+    error: 'models[].max_session_duration_seconds must be a number',
+  }),
   response_speed: z.string().optional(),
   features: z
     .object({
@@ -53,8 +55,12 @@ export const DiscoveryResponseSchema = z.object({
     oidc: OidcSchema.optional(),
   }),
   capabilities: z.object({
-    audio_formats: z.array(z.string()).min(1, 'capabilities.audio_formats must have at least one format'),
-    max_chunk_duration_seconds: z.number().positive('capabilities.max_chunk_duration_seconds must be positive'),
+    audio_formats: z
+      .array(z.string())
+      .min(1, 'capabilities.audio_formats must have at least one format'),
+    max_chunk_duration_seconds: z
+      .number()
+      .positive('capabilities.max_chunk_duration_seconds must be positive'),
     upload_methods: z.array(z.string()).optional(),
     webhook_delivery: z.boolean().optional(),
     client_sdk_delivery: z.boolean().optional(),

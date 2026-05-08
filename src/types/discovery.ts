@@ -2,8 +2,6 @@
  * Discovery document types (MedScribe Alliance Protocol)
  */
 
-import { UploadType } from '../constants';
-
 export interface DiscoveryDocument {
   protocol: string;
   protocol_version: string;
@@ -30,7 +28,7 @@ export interface EndpointsInfo {
 }
 
 export interface AuthenticationInfo {
-  supported_methods: ('api_key' | 'oidc')[];
+  supported_methods: string[];
   oidc?: {
     issuer: string;
     authorization_endpoint: string;
@@ -42,7 +40,7 @@ export interface AuthenticationInfo {
 export interface CapabilitiesInfo {
   audio_formats: string[];
   max_chunk_duration_seconds: number;
-  upload_methods?: UploadType[];
+  upload_methods?: string[];
   webhook_delivery?: boolean;
   client_sdk_delivery?: boolean;
 }
@@ -52,11 +50,11 @@ export interface ModelConfig {
   display_name: string;
   languages: string[];
   max_session_duration_seconds: number;
-  response_speed: 'fast' | 'standard' | 'slow';
-  features: {
-    realtime_transcription: boolean;
-    speaker_diarization: boolean;
-    custom_templates: boolean;
+  response_speed?: string;
+  features?: {
+    realtime_transcription?: boolean;
+    speaker_diarization?: boolean;
+    custom_templates?: boolean;
   };
 }
 
@@ -75,7 +73,7 @@ export interface ResolvedConfig {
   supportedLanguages: string[];
   autoDetectLanguage: boolean;
   supportedAudioFormats: string[];
-  supportedUploadMethods: UploadType[];
+  supportedUploadMethods: string[];
   maxChunkDurationSeconds: number;
   /** modelId -> max session duration in seconds */
   maxSessionDurationSeconds: Map<string, number>;

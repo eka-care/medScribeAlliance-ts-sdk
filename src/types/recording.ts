@@ -2,7 +2,6 @@
  * Recording types
  */
 
-import { UploadType } from '../constants';
 import { CreateSessionResponse } from './session';
 
 export interface RecordingOptions {
@@ -10,8 +9,8 @@ export interface RecordingOptions {
   model?: string;
   languageHint?: string[];
   transcriptLanguage?: string[];
-  uploadType?: UploadType;
-  communicationProtocol?: 'websocket' | 'http' | 'rpc';
+  uploadType?: string;
+  communicationProtocol?: string;
   additionalData?: Record<string, any>;
   deviceId?: string;
 }

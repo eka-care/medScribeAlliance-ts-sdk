@@ -2,15 +2,15 @@
  * Session lifecycle types (MedScribe Alliance Protocol)
  */
 
-import { SessionStatus, TemplateStatus, UploadType } from '../constants';
+import { SessionStatus, TemplateStatus } from '../constants';
 
 export interface CreateSessionRequest {
   templates: string[];
   model?: string;
   language_hint?: string[];
   transcript_language?: string[];
-  upload_type: UploadType;
-  communication_protocol: 'websocket' | 'http' | 'rpc';
+  upload_type: string;
+  communication_protocol: string;
   additional_data?: Record<string, any>;
 }
 
