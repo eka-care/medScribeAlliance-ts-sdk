@@ -1,9 +1,6 @@
 export * from './constants';
-export * from './types';
-export * from './utils';
+export * from './mp3-encoder';
 export * from './audio-buffer-manager';
 export * from './audio-file-manager';
-export * from './vad-web';
-export * from './recorder.interface';
-export * from './chunked-recorder';
-export * from './single-recorder';
+export { VadClient } from './vad-client';
+export type { VadCallbacks, VadConfig } from './vad-client';
