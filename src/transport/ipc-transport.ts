@@ -10,7 +10,13 @@
  * - Same retry logic as HttpTransport (retries on SDK side)
  */
 
-import { ITransport, TransportRequest, TransportResponse, IpcBridge, IpcRequest } from './transport.interface';
+import {
+  ITransport,
+  TransportRequest,
+  TransportResponse,
+  IpcBridge,
+  IpcRequest,
+} from './transport.interface';
 import { TransportError, AuthenticationError, RateLimitError, ScribeError } from '../utils/errors';
 import { retryWithBackoff, RetryOptions } from '../utils/retry';
 import { HttpStatus } from '../constants';
@@ -18,16 +24,24 @@ import type { IpcResponse } from '../types';
 
 export class IpcTransport implements ITransport {
   private bridge: IpcBridge;
-  private pendingRequests = new Map<string, {
-    resolve: (response: IpcResponse) => void;
-    reject: (error: Error) => void;
-  }>();
+  private pendingRequests = new Map<
+    string,
+    {
+      resolve: (response: IpcResponse) => void;
+      reject: (error: Error) => void;
+    }
+  >();
   private apiKey?: string;
   private accessToken?: string;
   private debug: boolean;
   private correlationCounter = 0;
 
-  constructor(options: { bridge: IpcBridge; apiKey?: string; accessToken?: string; debug?: boolean }) {
+  constructor(options: {
+    bridge: IpcBridge;
+    apiKey?: string;
+    accessToken?: string;
+    debug?: boolean;
+  }) {
     this.bridge = options.bridge;
     this.apiKey = options.apiKey;
     this.accessToken = options.accessToken;
@@ -162,11 +176,13 @@ export class IpcTransport implements ITransport {
       // Set a timeout to avoid hanging forever if host never responds
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(correlationId);
-        reject(new TransportError('IPC request timed out after 30s', {
-          correlationId,
-          url: request.url,
-        }));
-      }, 30_000);
+        reject(
+          new TransportError('IPC request timed out after 30s', {
+            correlationId,
+            url: request.url,
+          })
+        );
+      }, 15_000);
 
       this.pendingRequests.set(correlationId, {
         resolve: (response: IpcResponse) => {
@@ -184,10 +200,14 @@ export class IpcTransport implements ITransport {
       } catch (error) {
         clearTimeout(timeout);
         this.pendingRequests.delete(correlationId);
-        reject(new TransportError(
-          `Failed to send IPC request: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          { correlationId, url: request.url }
-        ));
+        reject(
+          new TransportError(
+            `Failed to send IPC request: ${
+              error instanceof Error ? error.message : 'Unknown error'
+            }`,
+            { correlationId, url: request.url }
+          )
+        );
       }
     });
   }
@@ -207,8 +227,7 @@ export class IpcTransport implements ITransport {
     const status = response.status;
     const body = response.body;
 
-    const errorMessage =
-      body?.error?.message ?? body?.message ?? 'Request failed';
+    const errorMessage = body?.error?.message ?? body?.message ?? 'Request failed';
     const errorCode = body?.error?.code ?? 'http_error';
 
     if (status === HttpStatus.UNAUTHORIZED) {
