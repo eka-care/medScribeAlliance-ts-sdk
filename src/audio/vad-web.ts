@@ -7,11 +7,16 @@ import {
   SHORT_SILENCE_THRESHOLD,
 } from './constants';
 import { ErrorCode, HttpStatus } from '../constants';
-import { TAudioChunksInfo, TVadFrameProcessedCallback, TVadFramesCallback, TUserSpeechCallback } from './types';
+import {
+  TAudioChunksInfo,
+  TVadFrameProcessedCallback,
+  TVadFramesCallback,
+  TUserSpeechCallback,
+} from './types';
 import { AudioBufferManager } from './audio-buffer-manager';
 import { AudioFileManager } from './audio-file-manager';
 // We will import AudioFileManager after we define it, or use a forward ref / interface if possible.
-// For now, I'll assume AudioFileManager is available or use `any` for the manager 
+// For now, I'll assume AudioFileManager is available or use `any` for the manager
 // to avoid circular dependency issues if they exist, but best is to import the class or interface.
 // Since AudioFileManager depends on VAD? No, VAD depends on AudioFileManager.
 
@@ -45,9 +50,9 @@ export class VadWebClient {
   private audioBufferManager?: AudioBufferManager;
 
   constructor(
-    pref_length: number, 
-    desp_length: number, 
-    max_length: number, 
+    pref_length: number,
+    desp_length: number,
+    max_length: number,
     sr: number,
     audioFileManager?: AudioFileManager,
     audioBufferManager?: AudioBufferManager
@@ -64,7 +69,7 @@ export class VadWebClient {
     this.frame_size = FRAME_SIZE;
     this.speech_pad_frames = PRE_SPEECH_PAD_FRAMES;
     this.micVad = {} as MicVAD;
-    
+
     this.audioFileManager = audioFileManager;
     this.audioBufferManager = audioBufferManager;
   }
@@ -164,10 +169,12 @@ export class VadWebClient {
       }
     }
 
-    const sample_passed: number = this.vad_past.length - this.last_clip_index;
+    // Convert frame count to sample count for comparison
+    const sample_passed: number = (this.vad_past.length - this.last_clip_index) * this.frame_size;
+    const silence_samples: number = this.sil_duration_acc * this.frame_size;
 
     if (sample_passed > this.pref_length_samples) {
-      if (this.sil_duration_acc > this.long_thsld) {
+      if (silence_samples > this.long_thsld) {
         this.last_clip_index =
           this.vad_past.length - Math.min(Math.floor(this.sil_duration_acc / 2), 5);
         this.clip_points.push(this.last_clip_index);
@@ -177,7 +184,7 @@ export class VadWebClient {
     }
 
     if (sample_passed > this.desp_length_samples) {
-      if (this.sil_duration_acc > this.shor_thsld) {
+      if (silence_samples > this.shor_thsld) {
         this.last_clip_index =
           this.vad_past.length - Math.min(Math.floor(this.sil_duration_acc / 2), 5);
         this.clip_points.push(this.last_clip_index);
@@ -254,7 +261,7 @@ export class VadWebClient {
           if (is_clip_point) {
             const activeAudioChunk = this.audioBufferManager?.getAudioData();
             if (activeAudioChunk) {
-               this.processAudioChunk({ audioFrames: activeAudioChunk });
+              this.processAudioChunk({ audioFrames: activeAudioChunk });
             }
           }
         },
@@ -270,6 +277,7 @@ export class VadWebClient {
       this.micVad = vad;
       return !this.is_vad_loading;
     } catch (e) {
+      console.error('Error initializing VAD:', e);
       this.stopMicStream();
       this.is_vad_loading = false;
       throw e;
@@ -285,10 +293,12 @@ export class VadWebClient {
     if (!audioFrames || !this.audioFileManager || !this.audioBufferManager) return;
 
     const filenumber = (this.audioFileManager.audioChunks.length || 0) + 1;
-    const fileName = `${filenumber}.${OUTPUT_FORMAT}`;
+    const fileName = `chunk_${filenumber}.${OUTPUT_FORMAT}`;
 
     const rawSampleDetails = this.audioFileManager.getRawSampleDetails();
-    const chunkTimestamps = this.audioBufferManager.calculateChunkTimestamps(rawSampleDetails.totalRawSamples);
+    const chunkTimestamps = this.audioBufferManager.calculateChunkTimestamps(
+      rawSampleDetails.totalRawSamples
+    );
 
     try {
       const chunkInfo: TAudioChunksInfo = {
@@ -356,7 +366,7 @@ export class VadWebClient {
     this.recording_started = false;
     this.is_vad_loading = true;
   }
-  
+
   configureVadConstants({
     pref_length,
     desp_length,

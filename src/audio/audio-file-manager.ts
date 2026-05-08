@@ -17,7 +17,7 @@ export class AudioFileManager {
   private totalRawFrames: number = 0;
   private totalInsertedSamples: number = 0;
   private totalInsertedFrames: number = 0;
-  
+
   private sessionId: string = '';
   private uploadUrl: string = '';
   private uploadHeaders?: Record<string, string>;
@@ -52,9 +52,9 @@ export class AudioFileManager {
     this.uploadUrl = uploadUrl;
     this.uploadHeaders = uploadHeaders;
   }
-  
+
   setUploadProgressCallback(callback: UploadProgressCallback) {
-      this.onUploadProgress = callback;
+    this.onUploadProgress = callback;
   }
 
   getRawSampleDetails(): {
@@ -93,8 +93,9 @@ export class AudioFileManager {
   }
 
   async uploadAudio({ audioFrames, fileName, chunkIndex }: TUploadAudioChunkParams) {
-      // Compress and upload in main thread (SharedWorker complexity removed for MVP/Port)
-      await this.uploadAudioChunkInMain({ audioFrames, fileName, chunkIndex });
+    console.log('upload audio chunk called for file:', fileName, ' at index:', chunkIndex);
+    // Compress and upload in main thread (SharedWorker complexity removed for MVP/Port)
+    await this.uploadAudioChunkInMain({ audioFrames, fileName, chunkIndex });
   }
 
   private async uploadAudioChunkInMain({
@@ -106,8 +107,8 @@ export class AudioFileManager {
     fileName: string;
   }> {
     if (!this.uploadUrl) {
-        console.error('Upload URL not set');
-        return { success: false, fileName };
+      console.error('Upload URL not set');
+      return { success: false, fileName };
     }
 
     const compressedAudioBuffer = compressAudioToMp3(audioFrames);
@@ -116,37 +117,41 @@ export class AudioFileManager {
       type: AUDIO_EXTENSION_TYPE_MAP[OUTPUT_FORMAT],
     });
 
-    // Notify info (optional)
-    
-    const uploadPromise = uploadFileWithFormData(this.uploadUrl, fileName, audioBlob, this.uploadHeaders)
-      .then((response) => {
-        if (response.success) {
-          this.successfulUploads.push(fileName);
+    console.log('Uploading to URL:', this.uploadUrl, 'filename:', fileName);
 
-          if (chunkIndex !== -1 && this.audioChunks[chunkIndex]) {
-            this.audioChunks[chunkIndex] = {
-              ...this.audioChunks[chunkIndex],
-              audioFrames: undefined,
-              fileBlob: undefined,
-              status: 'success',
-              response: response.success,
-            };
-          }
-          
-          this.onUploadProgress?.([...this.successfulUploads], this.audioChunks.length);
-        } else {
-          if (chunkIndex !== -1 && this.audioChunks[chunkIndex]) {
-            this.audioChunks[chunkIndex] = {
-              ...this.audioChunks[chunkIndex],
-              fileBlob: audioBlob,
-              audioFrames: undefined,
-              status: 'failure',
-              response: response.error || 'Upload failed',
-            };
-          }
+    const uploadPromise = uploadFileWithFormData(
+      this.uploadUrl,
+      fileName,
+      audioBlob,
+      this.uploadHeaders
+    ).then((response) => {
+      if (response.success) {
+        this.successfulUploads.push(fileName);
+
+        if (chunkIndex !== -1 && this.audioChunks[chunkIndex]) {
+          this.audioChunks[chunkIndex] = {
+            ...this.audioChunks[chunkIndex],
+            audioFrames: undefined,
+            fileBlob: undefined,
+            status: 'success',
+            response: response.success,
+          };
         }
-        return response;
-      });
+
+        this.onUploadProgress?.([...this.successfulUploads], this.audioChunks.length);
+      } else {
+        if (chunkIndex !== -1 && this.audioChunks[chunkIndex]) {
+          this.audioChunks[chunkIndex] = {
+            ...this.audioChunks[chunkIndex],
+            fileBlob: audioBlob,
+            audioFrames: undefined,
+            status: 'failure',
+            response: response.error || 'Upload failed',
+          };
+        }
+      }
+      return response;
+    });
 
     this.uploadPromises.push(uploadPromise);
 
@@ -195,28 +200,32 @@ export class AudioFileManager {
         if (status === 'failure') {
           failedFileBlob = fileBlob;
         } else if (status === 'pending' && audioFrames) {
-             const compressedAudioBuffer = compressAudioToMp3(audioFrames);
-             failedFileBlob = new Blob(compressedAudioBuffer as BlobPart[], {
-               type: AUDIO_EXTENSION_TYPE_MAP[OUTPUT_FORMAT],
-             });
+          const compressedAudioBuffer = compressAudioToMp3(audioFrames);
+          failedFileBlob = new Blob(compressedAudioBuffer as BlobPart[], {
+            type: AUDIO_EXTENSION_TYPE_MAP[OUTPUT_FORMAT],
+          });
         }
 
         if (failedFileBlob) {
-          const uploadPromise = uploadFileWithFormData(this.uploadUrl, fileName, failedFileBlob, this.uploadHeaders)
-            .then((response) => {
-              if (response.success) {
-                this.successfulUploads.push(fileName);
-                this.audioChunks[index] = {
-                  ...this.audioChunks[index],
-                  audioFrames: undefined,
-                  fileBlob: undefined,
-                  status: 'success',
-                  response: response.success,
-                };
-                 this.onUploadProgress?.([...this.successfulUploads], this.audioChunks.length);
-              }
-              return response;
-            });
+          const uploadPromise = uploadFileWithFormData(
+            this.uploadUrl,
+            fileName,
+            failedFileBlob,
+            this.uploadHeaders
+          ).then((response) => {
+            if (response.success) {
+              this.successfulUploads.push(fileName);
+              this.audioChunks[index] = {
+                ...this.audioChunks[index],
+                audioFrames: undefined,
+                fileBlob: undefined,
+                status: 'success',
+                response: response.success,
+              };
+              this.onUploadProgress?.([...this.successfulUploads], this.audioChunks.length);
+            }
+            return response;
+          });
 
           this.uploadPromises.push(uploadPromise);
         }

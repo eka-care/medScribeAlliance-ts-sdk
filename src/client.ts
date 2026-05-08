@@ -65,7 +65,11 @@ export class ScribeClient {
       ...config,
     };
 
-    this.httpClient = new HttpClient(this.config.apiKey, this.config.debug);
+    this.httpClient = new HttpClient(
+      this.config.apiKey,
+      this.config.accessToken,
+      this.config.debug
+    );
     this.discoveryAPI = new DiscoveryAPI(this.httpClient);
     this.sessionAPI = new SessionAPI(
       this.httpClient,
@@ -177,7 +181,9 @@ export class ScribeClient {
         this.recorder = new ChunkedRecorder(this.eventEmitter);
       }
 
-      this.recorder.initialize(this.currentSession);
+      this.recorder.initialize(this.currentSession, {
+        accessToken: this.config.accessToken,
+      });
 
       // Start recording
       // We assume options might have deviceId, or we use default
@@ -195,6 +201,52 @@ export class ScribeClient {
   }
 
   /**
+   * Pause the current recording
+   * Audio capture is temporarily suspended but session remains active
+   */
+  pauseRecording(): void {
+    if (!this.recorder) {
+      throw new ValidationError('No active recording to pause');
+    }
+
+    this.recorder.pause();
+
+    this.emitEvent({
+      type: 'recording:paused',
+    });
+
+    if (this.config.debug) {
+      console.log('[ScribeSDK] Recording paused');
+    }
+  }
+
+  /**
+   * Resume a paused recording
+   */
+  resumeRecording(): void {
+    if (!this.recorder) {
+      throw new ValidationError('No active recording to resume');
+    }
+
+    this.recorder.resume();
+
+    this.emitEvent({
+      type: 'recording:resumed',
+    });
+
+    if (this.config.debug) {
+      console.log('[ScribeSDK] Recording resumed');
+    }
+  }
+
+  /**
+   * Check if recording is currently paused
+   */
+  isRecordingPaused(): boolean {
+    return this.recorder?.isPaused() ?? false;
+  }
+
+  /**
    * End the current recording session
    * Stops audio recording, uploads remaining data, and triggers processing
    */
@@ -205,8 +257,9 @@ export class ScribeClient {
 
     try {
       // Stop recording and upload
+      let audioFilesSent = 0;
       if (this.recorder) {
-        const { failedUploads } = await this.recorder.stop();
+        const { failedUploads, totalFiles } = await this.recorder.stop();
         if (failedUploads.length > 0) {
           console.warn('Some audio files failed to upload:', failedUploads);
           throw new ScribeError(
@@ -214,10 +267,14 @@ export class ScribeClient {
             'upload_failed'
           );
         }
+        audioFilesSent = totalFiles || 0;
         this.recorder = null;
       }
 
-      const response = await this.sessionAPI.endSession(this.currentSession.session_id);
+      const response = await this.sessionAPI.endSession(
+        this.currentSession.session_id,
+        audioFilesSent
+      );
 
       this.emitEvent({
         type: 'session:ended',

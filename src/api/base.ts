@@ -16,10 +16,12 @@ export interface RequestConfig {
 export class HttpClient {
   private apiKey?: string;
   private debug: boolean;
+  private accessToken?: string;
 
-  constructor(apiKey?: string, debug: boolean = false) {
+  constructor(apiKey?: string, accessToken?: string, debug: boolean = false) {
     this.apiKey = apiKey;
     this.debug = debug;
+    this.accessToken = accessToken;
   }
 
   /**
@@ -35,6 +37,10 @@ export class HttpClient {
     // Add API key header if provided
     if (this.apiKey) {
       headers['X-API-Key'] = this.apiKey;
+    }
+
+    if (this.accessToken) {
+      headers['Authorization'] = `Bearer ${this.accessToken}`;
     }
 
     const requestInit: RequestInit = {
@@ -75,7 +81,7 @@ export class HttpClient {
 
       // Handle error responses
       await this.handleErrorResponse(response);
-      
+
       // This line should never be reached, but TypeScript needs it
       throw new ScribeError('Unexpected error occurred');
     } catch (error) {

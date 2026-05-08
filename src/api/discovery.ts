@@ -20,7 +20,7 @@ export class DiscoveryAPI {
   /**
    * Fetch discovery document from the well-known endpoint
    * Implements caching as recommended in Spec 04.8
-   * 
+   *
    * @param baseUrl - The base URL of the Scribe service
    * @param forceRefresh - Force refresh the cache
    */
@@ -33,7 +33,7 @@ export class DiscoveryAPI {
     }
 
     // Construct well-known URL
-    const discoveryUrl = new URL(WELL_KNOWN_PATH, baseUrl).toString();
+    const discoveryUrl = baseUrl + WELL_KNOWN_PATH;
 
     // Fetch discovery document
     const discovery = await this.httpClient.get<DiscoveryDocument>(discoveryUrl);

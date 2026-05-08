@@ -61,22 +61,24 @@ export class SessionAPI {
   /**
    * End a session
    * POST /sessions/{sessionId}/end
-   * 
+   *
    * This triggers processing of the uploaded audio.
    * No more audio can be uploaded after this call.
-   * 
+   *
    * @param sessionId - The session ID
+   * @param audioFilesSent - Number of audio files sent during the session
    * @returns End session response with processing status
    */
-  async endSession(sessionId: string): Promise<EndSessionResponse> {
+  async endSession(sessionId: string, audioFilesSent?: number): Promise<EndSessionResponse> {
     const url = `${this.baseUrl}/sessions/${sessionId}/end`;
-    return this.httpClient.post<EndSessionResponse>(url);
+    const body = audioFilesSent !== undefined ? { audio_files_sent: audioFilesSent } : undefined;
+    return this.httpClient.post<EndSessionResponse>(url, body);
   }
 
   /**
    * Poll for session completion
    * Repeatedly checks session status until it's completed, partial, or failed
-   * 
+   *
    * @param sessionId - The session ID
    * @param options - Polling options
    * @returns Final session status
@@ -118,7 +120,9 @@ export class SessionAPI {
     }
 
     // Max attempts reached
-    throw new Error(`Polling timeout: session ${sessionId} did not complete after ${maxAttempts} attempts`);
+    throw new Error(
+      `Polling timeout: session ${sessionId} did not complete after ${maxAttempts} attempts`
+    );
   }
 
   /**

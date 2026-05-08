@@ -129,6 +129,7 @@ export interface TemplatesOutput {
 export interface TemplateEntry {
   status: TemplateStatus;
   data?: any;
+  fhir?: any;
   error?: TemplateError;
 }
 
@@ -163,6 +164,7 @@ export interface ErrorResponse {
 
 export interface ScribeSDKConfig {
   apiKey?: string;
+  accessToken?: string;
   baseUrl: string;
   debug?: boolean;
   autoDiscovery?: boolean;
@@ -191,6 +193,8 @@ export type SDKEventType =
   | 'session:created'
   | 'session:ended'
   | 'session:status_update'
+  | 'recording:paused'
+  | 'recording:resumed'
   | 'error';
 
 export interface SDKEvent {

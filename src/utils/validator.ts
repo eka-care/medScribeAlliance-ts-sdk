@@ -1,115 +1,170 @@
 /**
- * Schema Validator using AJV
- * Validates API requests against OpenAPI schemas
+ * Schema Validator with basic validations
+ * Validates API requests without using eval-based libraries (CSP compatible)
  */
 
-import Ajv, { ValidateFunction, ErrorObject } from 'ajv';
-import addFormats from 'ajv-formats';
 import { ValidationError } from './errors';
-import schemas from '../schemas/openapi-schemas.json';
 
-// TODO: verify this validations
+// Valid enum values
+const VALID_MODELS = ['pro', 'lite'];
+const VALID_UPLOAD_TYPES = ['chunked', 'single', 'stream'];
+const VALID_COMMUNICATION_PROTOCOLS = ['websocket', 'http', 'rpc'];
+const SESSION_ID_PATTERN = /^ses_[a-zA-Z0-9]+$/;
+
+interface CreateSessionRequestData {
+  templates?: unknown;
+  model?: unknown;
+  language_hint?: unknown;
+  transcript_language?: unknown;
+  upload_type?: unknown;
+  communication_protocol?: unknown;
+  additional_data?: unknown;
+}
+
 class SchemaValidator {
-  private ajv: Ajv;
-  private validators: Map<string, ValidateFunction> = new Map();
-
-  constructor() {
-    // Initialize AJV with strict mode and all errors
-    this.ajv = new Ajv({
-      allErrors: true,
-      strict: true,
-      validateFormats: true,
-    });
-
-    // Add format validators (date-time, uri, etc.)
-    addFormats(this.ajv);
-
-    // Compile schemas
-    this.compileSchemas();
-  }
-
-  private compileSchemas(): void {
-    // Add all schema definitions first
-    if (schemas.definitions) {
-      Object.entries(schemas.definitions).forEach(([key, schema]) => {
-        try {
-          const validate = this.ajv.compile({
-            ...schema,
-            $schema: schemas.$schema,
-            definitions: schemas.definitions,
-          });
-          this.validators.set(key, validate);
-        } catch (error) {
-          console.error(`Failed to compile schema for ${key}:`, error);
-        }
-      });
-    }
-  }
-
   /**
-   * Validate data against a specific schema
+   * Validate CreateSessionRequest
    */
-  validate(schemaName: string, data: unknown): void {
-    const validator = this.validators.get(schemaName);
-
-    if (!validator) {
-      throw new ValidationError(`Schema '${schemaName}' not found`);
+  validateCreateSessionRequest(data: unknown): void {
+    if (!data || typeof data !== 'object') {
+      throw new ValidationError('CreateSessionRequest must be an object');
     }
 
-    const valid = validator(data);
+    const request = data as CreateSessionRequestData;
+    const errors: string[] = [];
 
-    if (!valid && validator.errors) {
-      const errorMessages = this.formatErrors(validator.errors);
+    // Required fields
+    if (!request.templates) {
+      errors.push('templates is required');
+    }
+    if (!request.upload_type) {
+      errors.push('upload_type is required');
+    }
+    if (!request.communication_protocol) {
+      errors.push('communication_protocol is required');
+    }
+
+    // Validate templates
+    if (request.templates !== undefined) {
+      if (!Array.isArray(request.templates)) {
+        errors.push('templates must be an array');
+      } else {
+        if (request.templates.length > 2) {
+          errors.push('templates cannot have more than 2 items');
+        }
+        request.templates.forEach((item, index) => {
+          if (typeof item !== 'string') {
+            errors.push(`templates[${index}] must be a string`);
+          }
+        });
+      }
+    }
+
+    // Validate model (optional)
+    if (request.model !== undefined) {
+      if (typeof request.model !== 'string' || !VALID_MODELS.includes(request.model)) {
+        errors.push(`model must be one of: ${VALID_MODELS.join(', ')}`);
+      }
+    }
+
+    // Validate language_hint (optional)
+    if (request.language_hint !== undefined) {
+      if (!Array.isArray(request.language_hint)) {
+        errors.push('language_hint must be an array');
+      } else {
+        request.language_hint.forEach((item, index) => {
+          if (typeof item !== 'string') {
+            errors.push(`language_hint[${index}] must be a string`);
+          } else if (item.length > 2) {
+            errors.push(`language_hint[${index}] must be at most 2 characters`);
+          }
+        });
+      }
+    }
+
+    // Validate transcript_language (optional)
+    if (request.transcript_language !== undefined) {
+      if (!Array.isArray(request.transcript_language)) {
+        errors.push('transcript_language must be an array');
+      } else {
+        request.transcript_language.forEach((item, index) => {
+          if (typeof item !== 'string') {
+            errors.push(`transcript_language[${index}] must be a string`);
+          } else if (item.length > 2) {
+            errors.push(`transcript_language[${index}] must be at most 2 characters`);
+          }
+        });
+      }
+    }
+
+    // Validate upload_type
+    if (request.upload_type !== undefined) {
+      if (
+        typeof request.upload_type !== 'string' ||
+        !VALID_UPLOAD_TYPES.includes(request.upload_type)
+      ) {
+        errors.push(`upload_type must be one of: ${VALID_UPLOAD_TYPES.join(', ')}`);
+      }
+    }
+
+    // Validate communication_protocol
+    if (request.communication_protocol !== undefined) {
+      if (
+        typeof request.communication_protocol !== 'string' ||
+        !VALID_COMMUNICATION_PROTOCOLS.includes(request.communication_protocol)
+      ) {
+        errors.push(
+          `communication_protocol must be one of: ${VALID_COMMUNICATION_PROTOCOLS.join(', ')}`
+        );
+      }
+    }
+
+    // Validate additional_data (optional)
+    if (request.additional_data !== undefined) {
+      if (typeof request.additional_data !== 'object' || request.additional_data === null) {
+        errors.push('additional_data must be an object');
+      }
+    }
+
+    if (errors.length > 0) {
       throw new ValidationError(
-        `Validation failed for ${schemaName}:\n${errorMessages}`
+        `Validation failed for CreateSessionRequest:\n${errors.map((e) => `  - ${e}`).join('\n')}`
       );
     }
   }
 
   /**
-   * Validate CreateSessionRequest
-   */
-  validateCreateSessionRequest(data: unknown): void {
-    this.validate('CreateSessionRequest', data);
-  }
-
-  /**
    * Validate session ID parameter
    */
-  validateSessionId(sessionId: string): void {
-    this.validate('SessionIdParam', sessionId);
+  validateSessionId(sessionId: unknown): void {
+    if (typeof sessionId !== 'string') {
+      throw new ValidationError('Session ID must be a string');
+    }
+
+    if (!SESSION_ID_PATTERN.test(sessionId)) {
+      throw new ValidationError(
+        'Session ID must match pattern: ses_[alphanumeric characters] (e.g., ses_abc123)'
+      );
+    }
   }
 
   /**
-   * Format AJV errors into readable messages
+   * Generic validate method for backward compatibility
    */
-  private formatErrors(errors: ErrorObject[]): string {
-    return errors
-      .map((error) => {
-        const path = error.instancePath || 'root';
-        let message = `${path}: ${error.message}`;
-
-        // Add additional context for certain error types
-        if (error.keyword === 'enum') {
-          message += ` (allowed values: ${(error.params as any).allowedValues?.join(', ')})`;
-        } else if (error.keyword === 'pattern') {
-          message += ` (pattern: ${(error.params as any).pattern})`;
-        } else if (error.keyword === 'required') {
-          message += ` (missing property: ${(error.params as any).missingProperty})`;
-        } else if (error.keyword === 'type') {
-          message += ` (expected type: ${(error.params as any).type})`;
+  validate(schemaName: string, data: unknown): void {
+    switch (schemaName) {
+      case 'CreateSessionRequest':
+        this.validateCreateSessionRequest(data);
+        break;
+      case 'SessionIdParam':
+        this.validateSessionId(data);
+        break;
+      default:
+        // For other schemas, just do basic type check
+        if (data === undefined || data === null) {
+          throw new ValidationError(`${schemaName}: data cannot be null or undefined`);
         }
-
-        return `  - ${message}`;
-      })
-      .join('\n');
-  }
-
-  /**
-   * Get validator instance for custom validation
-   */
-  getValidator(schemaName: string): ValidateFunction | undefined {
-    return this.validators.get(schemaName);
+    }
   }
 }
 
