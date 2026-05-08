@@ -1,5 +1,8 @@
 /**
- * Custom Error Classes for Scribe SDK
+ * Error class hierarchy for MedScribe Alliance TS SDK
+ *
+ * All SDK errors extend ScribeError. Each subclass maps to a specific
+ * failure domain so consumers can catch precisely what they need.
  */
 
 import { ErrorCode, HttpStatus } from '../constants';
@@ -22,7 +25,6 @@ export class ScribeError extends Error {
     this.httpStatus = httpStatus;
     this.details = details;
 
-    // Maintains proper stack trace for where our error was thrown (only available on V8)
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, ScribeError);
     }
@@ -32,7 +34,7 @@ export class ScribeError extends Error {
     return new ScribeError(apiError.message, apiError.code, httpStatus, apiError.details);
   }
 
-  toJSON() {
+  toJSON(): Record<string, any> {
     return {
       name: this.name,
       message: this.message,
@@ -40,6 +42,20 @@ export class ScribeError extends Error {
       httpStatus: this.httpStatus,
       details: this.details,
     };
+  }
+}
+
+export class ValidationError extends ScribeError {
+  constructor(message: string, details?: Record<string, any>) {
+    super(message, ErrorCode.INVALID_REQUEST, HttpStatus.BAD_REQUEST, details);
+    this.name = 'ValidationError';
+  }
+}
+
+export class DiscoveryError extends ScribeError {
+  constructor(message: string, details?: Record<string, any>) {
+    super(message, ErrorCode.DISCOVERY_FAILED, undefined, details);
+    this.name = 'DiscoveryError';
   }
 }
 
@@ -86,9 +102,33 @@ export class RateLimitError extends ScribeError {
   }
 }
 
-export class ValidationError extends ScribeError {
+export class TransportError extends ScribeError {
   constructor(message: string, details?: Record<string, any>) {
-    super(message, ErrorCode.INVALID_REQUEST, HttpStatus.BAD_REQUEST, details);
-    this.name = 'ValidationError';
+    super(message, ErrorCode.TRANSPORT_ERROR, undefined, details);
+    this.name = 'TransportError';
+  }
+}
+
+export class WorkerError extends ScribeError {
+  constructor(message: string, details?: Record<string, any>) {
+    super(message, ErrorCode.WORKER_ERROR, undefined, details);
+    this.name = 'WorkerError';
+  }
+}
+
+export class UploadError extends ScribeError {
+  public readonly failedFiles: string[];
+
+  constructor(message: string, failedFiles: string[], details?: Record<string, any>) {
+    super(message, ErrorCode.UPLOAD_FAILED, undefined, details);
+    this.name = 'UploadError';
+    this.failedFiles = failedFiles;
+  }
+
+  toJSON(): Record<string, any> {
+    return {
+      ...super.toJSON(),
+      failedFiles: this.failedFiles,
+    };
   }
 }
