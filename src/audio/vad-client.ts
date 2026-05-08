@@ -67,8 +67,9 @@ export class VadClient {
   // Callback registry for dispatching audio events
   private callbackRegistry: CallbackRegistry;
 
-  // Internal callback for clip point — set by ChunkedRecorder
+  // Internal callbacks — set by ChunkedRecorder to wire VAD to audio pipeline
   private onClipPoint?: () => void;
+  private onRawFrame?: (frame: Float32Array) => void;
 
   constructor(config: VadConfig, callbackRegistry: CallbackRegistry) {
     const sr = config.samplingRate;
@@ -88,6 +89,15 @@ export class VadClient {
    */
   setOnClipPoint(callback: () => void): void {
     this.onClipPoint = callback;
+  }
+
+  /**
+   * Set the raw frame callback — called by ChunkedRecorder to wire
+   * each VAD frame to AudioBufferManager (buffering) and AudioFileManager (sample tracking).
+   * Only called while recording (frames during pause are skipped).
+   */
+  setOnRawFrame(callback: (frame: Float32Array) => void): void {
+    this.onRawFrame = callback;
   }
 
   /**
@@ -241,10 +251,15 @@ export class VadClient {
         data: { isSpeech: probabilities.isSpeech, notSpeech: probabilities.notSpeech },
       });
 
-      // Skip clipping logic if not recording
+      // Skip clipping logic and frame buffering if not recording
       if (!this.isRecording) {
         return;
       }
+
+      // Pass raw frame to ChunkedRecorder for buffering + sample tracking.
+      // This must happen BEFORE clip detection so the buffer has the frame
+      // when a clip point triggers chunk creation.
+      this.onRawFrame?.(frame);
 
       // Determine VAD decision
       const vadDecision = probabilities.isSpeech >= SPEECH_DETECTION_THRESHOLD ? 1 : 0;
