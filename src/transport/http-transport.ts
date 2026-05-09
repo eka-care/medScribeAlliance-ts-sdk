@@ -21,7 +21,6 @@ import {
 import { retryWithBackoff, RetryOptions } from '../utils/retry';
 
 export class HttpTransport implements ITransport {
-  private apiKey?: string;
   private accessToken?: string;
   private debug: boolean;
   private onUnauthorized?: () => Promise<string | undefined>;
@@ -30,12 +29,10 @@ export class HttpTransport implements ITransport {
   private tokenRefreshPromise: Promise<string | undefined> | null = null;
 
   constructor(options: {
-    apiKey?: string;
     accessToken?: string;
     debug?: boolean;
     onUnauthorized?: () => Promise<string | undefined>;
   }) {
-    this.apiKey = options.apiKey;
     this.accessToken = options.accessToken;
     this.debug = options.debug ?? false;
     this.onUnauthorized = options.onUnauthorized;
@@ -43,10 +40,6 @@ export class HttpTransport implements ITransport {
 
   setAuthToken(token: string): void {
     this.accessToken = token;
-  }
-
-  setApiKey(apiKey: string): void {
-    this.apiKey = apiKey;
   }
 
   async request<T = any>(config: TransportRequest): Promise<TransportResponse<T>> {
@@ -160,10 +153,6 @@ export class HttpTransport implements ITransport {
       headers['Content-Type'] = 'audio/mp3';
     }
 
-    // Auth headers
-    if (this.apiKey) {
-      headers['X-API-Key'] = this.apiKey;
-    }
     if (this.accessToken) {
       headers['Authorization'] = `Bearer ${this.accessToken}`;
     }

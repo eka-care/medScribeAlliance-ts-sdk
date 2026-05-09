@@ -9,9 +9,6 @@ export interface ScribeSDKConfig {
   /** Base URL of the scribe service (required) */
   baseUrl: string;
 
-  /** API key authentication */
-  apiKey?: string;
-
   /** Bearer token authentication */
   accessToken?: string;
 

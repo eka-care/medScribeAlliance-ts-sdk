@@ -307,14 +307,6 @@ export class ScribeClient {
     this.recordingManager.updateAuthToken(token);
   }
 
-  /**
-   * Update the API key.
-   */
-  setApiKey(apiKey: string): void {
-    this.config.apiKey = apiKey;
-    this.transport.setApiKey(apiKey);
-  }
-
   // --- Reset ---
 
   /**
@@ -415,7 +407,6 @@ export class ScribeClient {
       }
       return new IpcTransport({
         bridge: this.config.ipcTransport,
-        apiKey: this.config.apiKey,
         accessToken: this.config.accessToken,
         debug: this.config.debug,
         onUnauthorized,
@@ -423,7 +414,6 @@ export class ScribeClient {
     }
 
     return new HttpTransport({
-      apiKey: this.config.apiKey,
       accessToken: this.config.accessToken,
       debug: this.config.debug,
       onUnauthorized,
