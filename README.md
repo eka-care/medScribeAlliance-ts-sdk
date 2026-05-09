@@ -2,6 +2,11 @@
 
 TypeScript SDK for the [MedScribe Alliance Protocol](https://github.com/MedScribeAlliance/scribe-emr-protocol) — handles discovery, recording, audio chunking (VAD), MP3 compression, upload, session lifecycle, and output retrieval.
 
+## npm package link
+
+https://www.npmjs.com/package/med-scribe-alliance-ts-sdk      
+
+
 ## Installation
 
 ```bash
