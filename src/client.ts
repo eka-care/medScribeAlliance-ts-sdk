@@ -147,7 +147,12 @@ export class ScribeClient {
     const baseUrl = this.getEffectiveBaseUrl();
 
     return this.wrapResult(() =>
-      this.recordingManager.startWithExistingSession(baseUrl, session, options, this.config.accessToken)
+      this.recordingManager.startWithExistingSession(
+        baseUrl,
+        session,
+        options,
+        this.config.accessToken
+      )
     );
   }
 
@@ -217,23 +222,22 @@ export class ScribeClient {
   /**
    * Get the status of a session.
    * Uses the current active session if no sessionId is provided.
+   *
+   * Pass `poll` options to keep checking until the session reaches a
+   * terminal state (completed, partial, failed, expired) or times out.
+   *
    */
-  async getSessionStatus(sessionId?: string): Promise<SDKResult<GetSessionStatusResponse>> {
-    const baseUrl = this.getEffectiveBaseUrl();
-    return this.wrapResult(() => this.sessionManager.getSessionStatus(baseUrl, sessionId));
-  }
-
-  /**
-   * Poll for session completion — keeps checking until terminal state or timeout.
-   */
-  async pollForCompletion(
+  async getSessionStatus(
     sessionId?: string,
-    options?: PollOptions
+    options?: { poll?: PollOptions }
   ): Promise<SDKResult<GetSessionStatusResponse>> {
     const baseUrl = this.getEffectiveBaseUrl();
-    return this.wrapResult(() =>
-      this.sessionManager.pollForCompletion(baseUrl, sessionId, options)
-    );
+    if (options?.poll) {
+      return this.wrapResult(() =>
+        this.sessionManager.pollForCompletion(baseUrl, sessionId, options.poll)
+      );
+    }
+    return this.wrapResult(() => this.sessionManager.getSessionStatus(baseUrl, sessionId));
   }
 
   /**

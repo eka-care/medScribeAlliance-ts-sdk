@@ -404,14 +404,16 @@ function App() {
     setIsPolling(true);
     addLog('info', 'Polling for completion...');
 
-    const result: SDKResult<GetSessionStatusResponse> = await clientRef.current.pollForCompletion(
+    const result: SDKResult<GetSessionStatusResponse> = await clientRef.current.getSessionStatus(
       sessionInfo.session_id,
       {
-        maxAttempts: 60,
-        intervalMs: 2000,
-        onProgress: (status) => {
-          addLog('info', `Processing... status: ${status.status}`);
-          setOutputStatus(status);
+        poll: {
+          maxAttempts: 60,
+          intervalMs: 2000,
+          onProgress: (status) => {
+            addLog('info', `Processing... status: ${status.status}`);
+            setOutputStatus(status);
+          },
         },
       }
     );
