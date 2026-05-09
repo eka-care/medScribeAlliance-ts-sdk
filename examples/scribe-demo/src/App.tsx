@@ -46,7 +46,7 @@ function App() {
   const [config, setConfig] = useState({
     baseUrl: '',
     accessToken: '',
-    templates: 'eka_emr_template',
+    templates: '040565ca-fe5d-4d4c-94a8-e479a213eb0f',
     model: '',
     debug: true,
   });
@@ -218,6 +218,7 @@ function App() {
         baseUrl: config.baseUrl,
         accessToken: config.accessToken || undefined,
         debug: config.debug,
+        workerScriptUrl: '/worker.bundle.js',
       });
 
       // Register callbacks before init
@@ -242,10 +243,7 @@ function App() {
       }
     } catch (error) {
       // Only programmer errors throw (bad config)
-      addLog(
-        'error',
-        `Init threw: ${error instanceof Error ? error.message : String(error)}`
-      );
+      addLog('error', `Init threw: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsLoading(false);
     }
@@ -374,8 +372,9 @@ function App() {
     setIsLoading(true);
     addLog('info', 'Fetching session status...');
 
-    const result: SDKResult<GetSessionStatusResponse> =
-      await clientRef.current.getSessionStatus(sessionInfo.session_id);
+    const result: SDKResult<GetSessionStatusResponse> = await clientRef.current.getSessionStatus(
+      sessionInfo.session_id
+    );
 
     if (!result.success) {
       addLog('error', `Status failed: ${formatError(result.error)}`);
@@ -405,15 +404,17 @@ function App() {
     setIsPolling(true);
     addLog('info', 'Polling for completion...');
 
-    const result: SDKResult<GetSessionStatusResponse> =
-      await clientRef.current.pollForCompletion(sessionInfo.session_id, {
+    const result: SDKResult<GetSessionStatusResponse> = await clientRef.current.pollForCompletion(
+      sessionInfo.session_id,
+      {
         maxAttempts: 60,
         intervalMs: 2000,
         onProgress: (status) => {
           addLog('info', `Processing... status: ${status.status}`);
           setOutputStatus(status);
         },
-      });
+      }
+    );
 
     if (!result.success) {
       addLog('error', `Polling failed: ${formatError(result.error)}`);
