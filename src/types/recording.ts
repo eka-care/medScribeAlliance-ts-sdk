@@ -50,4 +50,13 @@ export type AudioChunkInfo = {
   | { status: 'failure'; fileBlob: Blob; audioFrames?: undefined }
 );
 
+export interface RetryUploadResult {
+  /** Number of files retried */
+  retried: number;
+  /** Number that succeeded on retry */
+  succeeded: number;
+  /** File names that still failed after retry */
+  stillFailed: string[];
+}
+
 export type UploadProgressCallback = (successFiles: string[], totalCount: number) => void;

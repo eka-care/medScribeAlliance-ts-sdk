@@ -5,6 +5,7 @@
  * - JSON requests for API calls, raw blob for uploads
  * - Retry logic via retryWithBackoff (3 attempts, 2s delay, skip 4xx)
  * - Maps HTTP errors to typed ScribeError subclasses
+ * - Auto-retries on 401 after token refresh (deduplicated across concurrent requests)
  */
 
 import { ITransport, TransportRequest, TransportResponse } from './transport.interface';
@@ -22,13 +23,16 @@ export class HttpTransport implements ITransport {
   private apiKey?: string;
   private accessToken?: string;
   private debug: boolean;
-  private onUnauthorized?: () => void;
+  private onUnauthorized?: () => Promise<string | undefined>;
+
+  // Deduplication: if a token refresh is in-flight, reuse the same promise
+  private tokenRefreshPromise: Promise<string | undefined> | null = null;
 
   constructor(options: {
     apiKey?: string;
     accessToken?: string;
     debug?: boolean;
-    onUnauthorized?: () => void;
+    onUnauthorized?: () => Promise<string | undefined>;
   }) {
     this.apiKey = options.apiKey;
     this.accessToken = options.accessToken;
@@ -63,6 +67,33 @@ export class HttpTransport implements ITransport {
   }
 
   private async executeRequest<T>(config: TransportRequest): Promise<TransportResponse<T>> {
+    const response = await this.doFetch(config);
+
+    if (response.ok || config.acceptStatuses?.includes(response.status)) {
+      return this.buildSuccessResponse<T>(response);
+    }
+
+    // 401 — attempt token refresh and retry once
+    if (response.status === HttpStatus.UNAUTHORIZED) {
+      const newToken = await this.refreshToken();
+      if (newToken) {
+        // Retry with refreshed token (buildHeaders picks up this.accessToken)
+        const retryResponse = await this.doFetch(config);
+        if (retryResponse.ok || config.acceptStatuses?.includes(retryResponse.status)) {
+          return this.buildSuccessResponse<T>(retryResponse);
+        }
+        // Retry also failed — throw as error
+        return this.handleErrorResponse(retryResponse, config);
+      }
+    }
+
+    return this.handleErrorResponse(response, config);
+  }
+
+  /**
+   * Execute a single fetch call with current auth headers.
+   */
+  private async doFetch(config: TransportRequest): Promise<Response> {
     const headers = this.buildHeaders(config);
     const requestInit = this.buildRequestInit(config, headers);
 
@@ -70,33 +101,50 @@ export class HttpTransport implements ITransport {
       console.log('[ScribeSDK] HTTP Request:', {
         url: config.url,
         method: config.method,
-        headers,
         isUpload: config.isUpload ?? false,
       });
     }
 
-    let response: Response;
     try {
-      response = await fetch(config.url, requestInit);
+      const response = await fetch(config.url, requestInit);
+
+      if (this.debug) {
+        console.log('[ScribeSDK] HTTP Response:', {
+          status: response.status,
+          statusText: response.statusText,
+        });
+      }
+
+      return response;
     } catch (error) {
       throw new TransportError(
         `Fetch failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
         { url: config.url, method: config.method }
       );
     }
+  }
 
-    if (this.debug) {
-      console.log('[ScribeSDK] HTTP Response:', {
-        status: response.status,
-        statusText: response.statusText,
-      });
+  /**
+   * Deduplicated token refresh.
+   * If multiple requests get 401 simultaneously, only one onTokenRequired
+   * callback fires — the rest await the same promise.
+   */
+  private async refreshToken(): Promise<string | undefined> {
+    // Reuse in-flight refresh
+    if (this.tokenRefreshPromise) {
+      return this.tokenRefreshPromise;
     }
 
-    if (response.ok || config.acceptStatuses?.includes(response.status)) {
-      return this.buildSuccessResponse<T>(response);
+    if (!this.onUnauthorized) {
+      return undefined;
     }
 
-    return this.handleErrorResponse(response, config);
+    this.tokenRefreshPromise = this.onUnauthorized();
+    try {
+      return await this.tokenRefreshPromise;
+    } finally {
+      this.tokenRefreshPromise = null;
+    }
   }
 
   private buildHeaders(config: TransportRequest): Record<string, string> {
@@ -131,7 +179,7 @@ export class HttpTransport implements ITransport {
     const init: RequestInit = {
       method: config.method,
       headers,
-      credentials: 'include',
+      credentials: 'same-origin',
     };
 
     if (config.isUpload && config.uploadBlob) {
@@ -166,8 +214,7 @@ export class HttpTransport implements ITransport {
 
   /**
    * Maps HTTP error responses to typed SDK errors and throws.
-   * This method always throws — the return type is `never` (expressed as
-   * Promise<TransportResponse<T>> so the caller's type flow stays clean).
+   * 401 is NOT handled here — it's handled in executeRequest with auto-retry.
    */
   private async handleErrorResponse<T>(
     response: Response,
@@ -188,9 +235,7 @@ export class HttpTransport implements ITransport {
 
     const errorCode = errorBody?.error?.code ?? 'http_error';
 
-    // Map to specific error types
     if (status === HttpStatus.UNAUTHORIZED) {
-      this.onUnauthorized?.();
       throw new AuthenticationError(errorMessage, {
         url: config.url,
         ...errorBody?.error?.details,

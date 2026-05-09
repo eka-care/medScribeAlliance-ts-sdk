@@ -50,6 +50,7 @@ export type {
   RecorderConfig,
   IRecorder,
   StopRecordingResult,
+  RetryUploadResult,
   AudioChunkInfo,
   UploadProgressCallback,
 } from './recording';

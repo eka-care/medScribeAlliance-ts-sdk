@@ -42,6 +42,7 @@ export interface WorkerUploadFailedMessage {
   type: 'upload_failed';
   fileName: string;
   error: string;
+  blob?: Blob;
 }
 
 export interface WorkerAllUploadsCompleteMessage {

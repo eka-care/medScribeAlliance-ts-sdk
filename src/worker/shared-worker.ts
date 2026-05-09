@@ -172,6 +172,7 @@ async function handleCompressAndUpload(
         type: 'upload_failed',
         fileName,
         error: result.error ?? 'Upload failed after retries',
+        blob: mp3Blob,
       });
     }
   } catch (error: any) {

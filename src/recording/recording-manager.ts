@@ -25,6 +25,7 @@ import type {
   RecordingOptions,
   RecorderConfig,
   StopRecordingResult,
+  RetryUploadResult,
 } from '../types/recording';
 import type { CreateSessionRequest, CreateSessionResponse } from '../types/session';
 import type { ITransport } from '../types/transport';
@@ -53,6 +54,12 @@ export class RecordingManager {
   private activeSession: CreateSessionResponse | null = null;
   private activeBaseUrl: string = '';
   private _isRecording: boolean = false;
+
+  // Retry context — survives after stop(), cleared on reset() or next start()
+  private retryContext: {
+    uploadUrl: string;
+    failedChunks: Array<{ fileName: string; blob: Blob }>;
+  } | null = null;
 
   constructor(
     callbackRegistry: CallbackRegistry,
@@ -90,6 +97,8 @@ export class RecordingManager {
       throw new ScribeError('Recording is already in progress. Stop the current recording first.');
     }
 
+    // Clear any previous retry context
+    this.retryContext = null;
     this.activeBaseUrl = baseUrl;
 
     // Determine upload type — default to 'chunked'
@@ -174,6 +183,77 @@ export class RecordingManager {
   }
 
   /**
+   * Start recording for an already-created session.
+   * Use this when the session was created externally (e.g. via createSession())
+   * and you want to attach a recorder to it.
+   *
+   * @param session - The existing session response (must have upload_url)
+   * @param options - Upload type and optional device ID
+   * @param accessToken - Current Bearer token for upload auth headers
+   */
+  async startWithExistingSession(
+    session: CreateSessionResponse,
+    options?: { uploadType?: string; deviceId?: string },
+    accessToken?: string
+  ): Promise<void> {
+    if (this._isRecording) {
+      throw new ScribeError('Recording is already in progress. Stop the current recording first.');
+    }
+
+    // Clear any previous retry context
+    this.retryContext = null;
+
+    const uploadType = options?.uploadType ?? 'chunked';
+
+    this.activeSession = session;
+
+    // Create the appropriate recorder
+    this.recorder = this.createRecorder(uploadType);
+
+    // Initialize recorder with session details
+    const recorderConfig: RecorderConfig = {
+      accessToken,
+      uploadUrl: session.upload_url,
+      uploadHeaders: this.buildUploadHeaders(accessToken),
+      sessionId: session.session_id,
+    };
+
+    try {
+      this.recorder.initialize(session, recorderConfig);
+    } catch (error) {
+      this.cleanupRecordingState();
+      this.dispatchStartError('validation_error', 'recorder_init_failed', error);
+      throw error;
+    }
+
+    // Apply discovery-driven chunk length overrides for chunked recorder
+    if (this.recorder instanceof ChunkedRecorder) {
+      this.applyDiscoveryOverrides(this.recorder);
+    }
+
+    // Start recording — VAD/mic errors possible
+    try {
+      await this.recorder.start(options?.deviceId);
+    } catch (error) {
+      this.cleanupRecordingState();
+      this.dispatchStartError('vad_error', 'vad_start_failed', error);
+      throw error;
+    }
+
+    this._isRecording = true;
+
+    // Dispatch recording state change
+    this.callbackRegistry.dispatch('onRecordingStateChange', {
+      type: 'started',
+      timestamp: new Date().toISOString(),
+    });
+
+    if (this.config.debug) {
+      console.log('[ScribeSDK] Recording started with existing session:', session.session_id);
+    }
+  }
+
+  /**
    * Pause the active recording.
    */
   pause(): void {
@@ -235,7 +315,10 @@ export class RecordingManager {
       // 1. Stop recorder — flushes last chunk, waits for all uploads
       const stopResult = await this.recorder.stop();
 
-      // 2. End session — tell the server how many files we sent
+      // 2. Preserve failed chunks for retry before cleanup destroys state
+      this.preserveRetryContext();
+
+      // 3. End session — tell the server how many files we sent
       if (this.activeSession) {
         try {
           const endResponse = await this.sessionManager.endSession(
@@ -264,7 +347,7 @@ export class RecordingManager {
         }
       }
 
-      // 3. Dispatch recording ended
+      // 4. Dispatch recording ended
       this.callbackRegistry.dispatch('onRecordingStateChange', {
         type: 'ended',
         timestamp: new Date().toISOString(),
@@ -283,7 +366,7 @@ export class RecordingManager {
       console.error('[ScribeSDK] Error stopping recording:', error);
       return { failedUploads: [], totalFiles: 0 };
     } finally {
-      // 4. Clean up regardless of success/failure
+      // 5. Clean up regardless of success/failure
       this.cleanupRecordingState();
     }
   }
@@ -307,6 +390,7 @@ export class RecordingManager {
     if (this.recorder) {
       this.recorder.reset();
     }
+    this.retryContext = null;
     this.cleanupRecordingState();
   }
 
@@ -320,6 +404,92 @@ export class RecordingManager {
 
   getActiveSession(): CreateSessionResponse | null {
     return this.activeSession;
+  }
+
+  /**
+   * Check if there are failed uploads from the last recording that can be retried.
+   */
+  hasFailedUploads(): boolean {
+    return (this.retryContext?.failedChunks.length ?? 0) > 0;
+  }
+
+  /**
+   * Retry uploading audio files that failed during the last recording.
+   * Uses the stored MP3 blobs and the original upload URL.
+   *
+   * Each file is re-uploaded via transport.request() with retry logic.
+   * Successfully retried files are removed from the retry context.
+   */
+  async retryFailedUploads(): Promise<RetryUploadResult> {
+    if (!this.retryContext || this.retryContext.failedChunks.length === 0) {
+      return { retried: 0, succeeded: 0, stillFailed: [] };
+    }
+
+    const { uploadUrl, failedChunks } = this.retryContext;
+    const retried = failedChunks.length;
+    const stillFailed: string[] = [];
+    let succeeded = 0;
+
+    if (this.config.debug) {
+      console.log(`[ScribeSDK] Retrying ${retried} failed uploads`);
+    }
+
+    for (const chunk of failedChunks) {
+      try {
+        const fullUrl = uploadUrl.endsWith('/')
+          ? `${uploadUrl}${chunk.fileName}`
+          : `${uploadUrl}/${chunk.fileName}`;
+
+        await this.transport.request({
+          method: 'POST',
+          url: fullUrl,
+          isUpload: true,
+          uploadBlob: chunk.blob,
+        });
+
+        succeeded++;
+
+        this.callbackRegistry.dispatch('onUploadEvent', {
+          type: 'progress',
+          timestamp: new Date().toISOString(),
+          data: { successCount: succeeded, totalCount: retried },
+        });
+
+        if (this.config.debug) {
+          console.log(`[ScribeSDK] Retry succeeded: ${chunk.fileName}`);
+        }
+      } catch (error) {
+        stillFailed.push(chunk.fileName);
+
+        this.callbackRegistry.dispatch('onUploadEvent', {
+          type: 'failed',
+          timestamp: new Date().toISOString(),
+          data: {
+            fileName: chunk.fileName,
+            error: error instanceof Error ? error.message : 'Retry failed',
+          },
+        });
+
+        if (this.config.debug) {
+          console.log(`[ScribeSDK] Retry failed: ${chunk.fileName}`, error);
+        }
+      }
+    }
+
+    // Update retry context — keep only the files that still failed
+    if (stillFailed.length === 0) {
+      this.retryContext = null;
+    } else {
+      this.retryContext.failedChunks = failedChunks.filter(
+        (chunk) => stillFailed.includes(chunk.fileName)
+      );
+    }
+
+    if (this.config.debug) {
+      console.log(`[ScribeSDK] Retry complete: ${succeeded}/${retried} succeeded`);
+    }
+
+    return { retried, succeeded, stillFailed };
   }
 
   // --- Private ---
@@ -386,6 +556,33 @@ export class RecordingManager {
         message: error instanceof Error ? error.message : 'Unknown error',
       },
     });
+  }
+
+  /**
+   * Extract failed chunks with their MP3 blobs from the recorder's FileManager
+   * before cleanup destroys the recorder state.
+   */
+  private preserveRetryContext(): void {
+    if (!(this.recorder instanceof ChunkedRecorder)) {
+      return;
+    }
+
+    const failedChunks = this.recorder.getFileManager().getFailedChunksWithBlobs();
+    if (failedChunks.length === 0 || !this.activeSession?.upload_url) {
+      this.retryContext = null;
+      return;
+    }
+
+    this.retryContext = {
+      uploadUrl: this.activeSession.upload_url,
+      failedChunks: failedChunks.map((c) => ({ fileName: c.fileName, blob: c.fileBlob })),
+    };
+
+    if (this.config.debug) {
+      console.log(
+        `[ScribeSDK] Preserved ${failedChunks.length} failed uploads for retry`
+      );
+    }
   }
 
   /**

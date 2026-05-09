@@ -37,7 +37,7 @@ import type { ITransport } from './types/transport';
 import { DiscoveryManager } from './discovery/discovery-manager';
 import { SessionManager } from './session/session-manager';
 import { RecordingManager } from './recording/recording-manager';
-import type { StopRecordingResult } from './types/recording';
+import type { StopRecordingResult, RetryUploadResult } from './types/recording';
 
 export class ScribeClient {
   private config: ScribeSDKConfig;
@@ -124,6 +124,31 @@ export class ScribeClient {
     );
   }
 
+  // TODO: getSessionDetails will return create session response?
+  /**
+   * Start recording for an already-created session.
+   * Use this when the session was created via createSession() and you want
+   * to attach a recorder to it.
+   *
+   * @param session - The session response from createSession()
+   * @param options - Upload type ('chunked' | 'single') and optional deviceId
+   */
+  async startRecordingWithSession(
+    session: CreateSessionResponse,
+    options?: { uploadType?: string; deviceId?: string }
+  ): Promise<SDKResult<void>> {
+    if (!this.isInitialized) {
+      const initResult = await this.init();
+      if (!initResult.success) {
+        return initResult;
+      }
+    }
+
+    return this.wrapResult(() =>
+      this.recordingManager.startWithExistingSession(session, options, this.config.accessToken)
+    );
+  }
+
   /**
    * Pause the active recording.
    */
@@ -146,6 +171,22 @@ export class ScribeClient {
   }
 
   /**
+   * Retry uploading audio files that failed during the last recording.
+   * Only available after endRecording() returned failed uploads.
+   * Cleared on reset() or next startRecording().
+   */
+  async retryFailedUploads(): Promise<SDKResult<RetryUploadResult>> {
+    return this.wrapResult(() => this.recordingManager.retryFailedUploads());
+  }
+
+  /**
+   * Check if there are failed uploads from the last recording that can be retried.
+   */
+  hasFailedUploads(): boolean {
+    return this.recordingManager.hasFailedUploads();
+  }
+
+  /**
    * Check if a recording is currently active.
    */
   isRecording(): boolean {
@@ -164,11 +205,11 @@ export class ScribeClient {
   /**
    * Create a session directly (without starting a recording).
    */
-  async createSession(sessionRequest: CreateSessionRequest): Promise<SDKResult<CreateSessionResponse>> {
+  async createSession(
+    sessionRequest: CreateSessionRequest
+  ): Promise<SDKResult<CreateSessionResponse>> {
     const baseUrl = this.getEffectiveBaseUrl();
-    return this.wrapResult(() =>
-      this.sessionManager.createSession(baseUrl, sessionRequest)
-    );
+    return this.wrapResult(() => this.sessionManager.createSession(baseUrl, sessionRequest));
   }
 
   /**
@@ -177,9 +218,7 @@ export class ScribeClient {
    */
   async getSessionStatus(sessionId?: string): Promise<SDKResult<GetSessionStatusResponse>> {
     const baseUrl = this.getEffectiveBaseUrl();
-    return this.wrapResult(() =>
-      this.sessionManager.getSessionStatus(baseUrl, sessionId)
-    );
+    return this.wrapResult(() => this.sessionManager.getSessionStatus(baseUrl, sessionId));
   }
 
   /**
@@ -227,9 +266,7 @@ export class ScribeClient {
    * Force refresh the discovery document.
    */
   async refreshDiscovery(): Promise<SDKResult<ResolvedConfig>> {
-    return this.wrapResult(() =>
-      this.discoveryManager.fetchDiscovery(this.config.baseUrl, true)
-    );
+    return this.wrapResult(() => this.discoveryManager.fetchDiscovery(this.config.baseUrl, true));
   }
 
   // --- Callbacks ---
@@ -315,17 +352,46 @@ export class ScribeClient {
     if (error instanceof ScribeError) {
       return error;
     }
-    return new ScribeError(
-      error instanceof Error ? error.message : 'Unknown error'
-    );
+    return new ScribeError(error instanceof Error ? error.message : 'Unknown error');
   }
 
+  /**
+   * Create the transport layer (HTTP or IPC) with 401 auto-retry wiring.
+   *
+   * How 401 auto-retry works:
+   * 1. Transport gets a 401 response → calls onUnauthorized()
+   * 2. onUnauthorized dispatches the 'onTokenRequired' callback to the consumer
+   * 3. Consumer calls resolve(newToken) → token is propagated via setAccessToken()
+   * 4. Promise resolves with the new token → transport retries the request once
+   *
+   * Deduplication: Transport holds a single tokenRefreshPromise — if multiple
+   * requests get 401 concurrently, they all await the same promise, so only
+   * ONE onTokenRequired callback fires regardless of how many requests failed.
+   *
+   * Timeout: If no handler is registered or the consumer never calls resolve(),
+   * the promise resolves with undefined after 10s → transport skips retry.
+   */
   private createTransport(): ITransport {
-    const onUnauthorized = () => {
-      this.callbackRegistry.dispatch('onTokenRequired', {
-        resolve: (newToken: string) => {
-          this.setAccessToken(newToken);
-        },
+    const onUnauthorized = (): Promise<string | undefined> => {
+      // No handler registered — skip token refresh, transport will throw AuthenticationError
+      if (!this.callbackRegistry.hasHandlers('onTokenRequired')) {
+        return Promise.resolve(undefined);
+      }
+
+      return new Promise<string | undefined>((resolve) => {
+        // Safety timeout — prevent hanging if consumer never calls resolve()
+        const timeout = setTimeout(() => {
+          resolve(undefined);
+        }, 10_000);
+
+        // Dispatch to consumer — they call resolve(newToken) when ready
+        this.callbackRegistry.dispatch('onTokenRequired', {
+          resolve: (newToken: string) => {
+            clearTimeout(timeout);
+            this.setAccessToken(newToken); // Propagate to transport + recorder + worker
+            resolve(newToken);
+          },
+        });
       });
     };
 

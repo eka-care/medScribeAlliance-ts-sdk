@@ -8,6 +8,7 @@
  * - Serializes requests with a correlation ID for request/response matching
  * - Converts upload blobs to base64 for IPC serialization
  * - Same retry logic as HttpTransport (retries on SDK side)
+ * - Auto-retries on 401 after token refresh (deduplicated across concurrent requests)
  */
 
 import {
@@ -42,14 +43,17 @@ export class IpcTransport implements ITransport {
   private debug: boolean;
   private correlationCounter = 0;
 
-  private onUnauthorized?: () => void;
+  private onUnauthorized?: () => Promise<string | undefined>;
+
+  // Deduplication: if a token refresh is in-flight, reuse the same promise
+  private tokenRefreshPromise: Promise<string | undefined> | null = null;
 
   constructor(options: {
     bridge: IpcBridge;
     apiKey?: string;
     accessToken?: string;
     debug?: boolean;
-    onUnauthorized?: () => void;
+    onUnauthorized?: () => Promise<string | undefined>;
   }) {
     this.bridge = options.bridge;
     this.apiKey = options.apiKey;
@@ -90,6 +94,52 @@ export class IpcTransport implements ITransport {
   }
 
   private async executeRequest<T>(config: TransportRequest): Promise<TransportResponse<T>> {
+    const ipcResponse = await this.doIpcRequest(config);
+
+    // Check for IPC-level errors (host couldn't process the request at all)
+    if (ipcResponse.error) {
+      throw new TransportError(ipcResponse.error, {
+        url: config.url,
+        method: config.method,
+      });
+    }
+
+    // Success path
+    if (ipcResponse.status < 400 || config.acceptStatuses?.includes(ipcResponse.status)) {
+      return {
+        status: ipcResponse.status,
+        headers: ipcResponse.headers ?? {},
+        data: ipcResponse.body as T,
+      };
+    }
+
+    // 401 — attempt token refresh and retry once
+    if (ipcResponse.status === HttpStatus.UNAUTHORIZED) {
+      const newToken = await this.refreshToken();
+      if (newToken) {
+        // Retry with refreshed token (buildHeaders picks up this.accessToken)
+        const retryResponse = await this.doIpcRequest(config);
+
+        if (!retryResponse.error &&
+            (retryResponse.status < 400 || config.acceptStatuses?.includes(retryResponse.status))) {
+          return {
+            status: retryResponse.status,
+            headers: retryResponse.headers ?? {},
+            data: retryResponse.body as T,
+          };
+        }
+        // Retry also failed — throw as error
+        return this.handleErrorResponse<T>(retryResponse, config);
+      }
+    }
+
+    return this.handleErrorResponse<T>(ipcResponse, config);
+  }
+
+  /**
+   * Execute a single IPC request with current auth headers.
+   */
+  private async doIpcRequest(config: TransportRequest): Promise<IpcResponse> {
     const correlationId = this.generateCorrelationId();
     const headers = this.buildHeaders(config);
     const ipcRequest = await this.buildIpcRequest(correlationId, config, headers);
@@ -103,7 +153,6 @@ export class IpcTransport implements ITransport {
       });
     }
 
-    // Send request and wait for matching response
     const ipcResponse = await this.sendAndWait(correlationId, ipcRequest);
 
     if (this.debug) {
@@ -113,24 +162,30 @@ export class IpcTransport implements ITransport {
       });
     }
 
-    // Check for IPC-level errors (host couldn't process the request at all)
-    if (ipcResponse.error) {
-      throw new TransportError(ipcResponse.error, {
-        url: config.url,
-        method: config.method,
-      });
+    return ipcResponse;
+  }
+
+  /**
+   * Deduplicated token refresh.
+   * If multiple requests get 401 simultaneously, only one onTokenRequired
+   * callback fires — the rest await the same promise.
+   */
+  private async refreshToken(): Promise<string | undefined> {
+    // Reuse in-flight refresh
+    if (this.tokenRefreshPromise) {
+      return this.tokenRefreshPromise;
     }
 
-    // Map HTTP-level errors (skip if caller accepts this status)
-    if (ipcResponse.status >= 400 && !config.acceptStatuses?.includes(ipcResponse.status)) {
-      return this.handleErrorResponse<T>(ipcResponse, config);
+    if (!this.onUnauthorized) {
+      return undefined;
     }
 
-    return {
-      status: ipcResponse.status,
-      headers: ipcResponse.headers ?? {},
-      data: ipcResponse.body as T,
-    };
+    this.tokenRefreshPromise = this.onUnauthorized();
+    try {
+      return await this.tokenRefreshPromise;
+    } finally {
+      this.tokenRefreshPromise = null;
+    }
   }
 
   private buildHeaders(config: TransportRequest): Record<string, string> {
@@ -230,6 +285,10 @@ export class IpcTransport implements ITransport {
     }
   }
 
+  /**
+   * Maps IPC error responses to typed SDK errors and throws.
+   * 401 is NOT handled here — it's handled in executeRequest with auto-retry.
+   */
   private handleErrorResponse<T>(
     response: IpcResponse,
     config: TransportRequest
@@ -241,7 +300,6 @@ export class IpcTransport implements ITransport {
     const errorCode = body?.error?.code ?? 'http_error';
 
     if (status === HttpStatus.UNAUTHORIZED) {
-      this.onUnauthorized?.();
       throw new AuthenticationError(errorMessage, {
         url: config.url,
         ...body?.error?.details,

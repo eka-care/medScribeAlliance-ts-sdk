@@ -214,7 +214,7 @@ export class WorkerManager {
       case 'upload_failed': {
         const chunkIndex = this.findChunkIndex(message.fileName);
         if (chunkIndex >= 0) {
-          this.fileManager.markFailure(chunkIndex, new Blob(), message.error);
+          this.fileManager.markFailure(chunkIndex, message.blob ?? new Blob(), message.error);
         }
         this.callbackRegistry.dispatch('onUploadEvent', {
           type: 'failed',
@@ -262,9 +262,12 @@ export class WorkerManager {
     fileName: string,
     chunkIndex: number
   ): Promise<void> {
+    // Hoist mp3Blob so it's accessible in catch for retry storage
+    let mp3Blob: Blob | null = null;
+
     try {
       // 1. Encode to MP3
-      const mp3Blob = encodeToMp3(audioFrames);
+      mp3Blob = encodeToMp3(audioFrames);
 
       if (!mp3Blob) {
         this.fileManager.markFailure(chunkIndex, new Blob(), 'MP3 encoding failed');
@@ -293,7 +296,7 @@ export class WorkerManager {
       this.fileManager.markSuccess(chunkIndex);
       this.dispatchUploadProgress();
     } catch (error: any) {
-      this.fileManager.markFailure(chunkIndex, new Blob(), error?.message ?? 'Upload failed');
+      this.fileManager.markFailure(chunkIndex, mp3Blob ?? new Blob(), error?.message ?? 'Upload failed');
       this.callbackRegistry.dispatch('onUploadEvent', {
         type: 'failed',
         timestamp: new Date().toISOString(),
