@@ -55,10 +55,10 @@ export class AudioFileManager {
 
   /**
    * Generate the next chunk file name per protocol spec.
-   * Format: audio_{sequence_number}.{extension} (zero-based index)
+   * Format: audio_{sequence_number}.{extension} (1-based index)
    */
   getNextFileName(): string {
-    const index = this.chunks.length;
+    const index = this.chunks.length + 1;
     return `audio_${index}.${OUTPUT_FORMAT}`;
   }
 

@@ -4,6 +4,7 @@
  */
 
 import { DiscoveryDocument, ResolvedConfig, ModelConfig } from '../types';
+import { DiscoveryError } from '../utils/errors';
 
 /**
  * Parses a validated DiscoveryDocument into a ResolvedConfig.
@@ -35,7 +36,10 @@ export function resolveConfig(doc: DiscoveryDocument): ResolvedConfig {
       clientSdkDelivery: doc.capabilities.client_sdk_delivery ?? false,
     };
   } catch (error) {
-    throw new Error(
+    if (error instanceof DiscoveryError) {
+      throw error;
+    }
+    throw new DiscoveryError(
       `Failed to resolve discovery config: ${error instanceof Error ? error.message : 'Unknown error'}`
     );
   }

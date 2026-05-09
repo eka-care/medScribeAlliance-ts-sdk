@@ -24,9 +24,10 @@ import {
   ForbiddenError,
   RateLimitError,
   ScribeError,
+  SessionNotFoundError,
 } from '../utils/errors';
 import { retryWithBackoff, RetryOptions } from '../utils/retry';
-import { HttpStatus } from '../constants';
+import { HttpStatus, ErrorCode } from '../constants';
 import type { IpcResponse } from '../types';
 
 export class IpcTransport implements ITransport {
@@ -308,6 +309,19 @@ export class IpcTransport implements ITransport {
 
     if (status === HttpStatus.FORBIDDEN) {
       throw new ForbiddenError(errorMessage, {
+        url: config.url,
+        ...body?.error?.details,
+      });
+    }
+
+    if (status === HttpStatus.NOT_FOUND) {
+      throw new SessionNotFoundError(
+        body?.error?.details?.session_id ?? config.url
+      );
+    }
+
+    if (status === HttpStatus.PAYLOAD_TOO_LARGE) {
+      throw new ScribeError(errorMessage, ErrorCode.CHUNK_TOO_LARGE, status, {
         url: config.url,
         ...body?.error?.details,
       });

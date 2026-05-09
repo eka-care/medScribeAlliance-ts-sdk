@@ -9,13 +9,14 @@
  */
 
 import { ITransport, TransportRequest, TransportResponse } from './transport.interface';
-import { HttpStatus } from '../constants';
+import { HttpStatus, ErrorCode } from '../constants';
 import {
   ScribeError,
   AuthenticationError,
   ForbiddenError,
   RateLimitError,
   TransportError,
+  SessionNotFoundError,
 } from '../utils/errors';
 import { retryWithBackoff, RetryOptions } from '../utils/retry';
 
@@ -244,6 +245,19 @@ export class HttpTransport implements ITransport {
 
     if (status === HttpStatus.FORBIDDEN) {
       throw new ForbiddenError(errorMessage, {
+        url: config.url,
+        ...errorBody?.error?.details,
+      });
+    }
+
+    if (status === HttpStatus.NOT_FOUND) {
+      throw new SessionNotFoundError(
+        errorBody?.error?.details?.session_id ?? config.url
+      );
+    }
+
+    if (status === HttpStatus.PAYLOAD_TOO_LARGE) {
+      throw new ScribeError(errorMessage, ErrorCode.CHUNK_TOO_LARGE, status, {
         url: config.url,
         ...errorBody?.error?.details,
       });

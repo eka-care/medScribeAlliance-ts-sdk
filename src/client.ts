@@ -144,8 +144,10 @@ export class ScribeClient {
       }
     }
 
+    const baseUrl = this.getEffectiveBaseUrl();
+
     return this.wrapResult(() =>
-      this.recordingManager.startWithExistingSession(session, options, this.config.accessToken)
+      this.recordingManager.startWithExistingSession(baseUrl, session, options, this.config.accessToken)
     );
   }
 
@@ -327,6 +329,7 @@ export class ScribeClient {
     this.sessionManager.clearCurrentSession();
     this.discoveryManager.clearCache();
     this.callbackRegistry.removeAll();
+    this.transport.destroy?.();
     this.isInitialized = false;
   }
 
@@ -379,14 +382,21 @@ export class ScribeClient {
       }
 
       return new Promise<string | undefined>((resolve) => {
+        let settled = false;
+
         // Safety timeout — prevent hanging if consumer never calls resolve()
         const timeout = setTimeout(() => {
-          resolve(undefined);
+          if (!settled) {
+            settled = true;
+            resolve(undefined);
+          }
         }, 10_000);
 
         // Dispatch to consumer — they call resolve(newToken) when ready
         this.callbackRegistry.dispatch('onTokenRequired', {
           resolve: (newToken: string) => {
+            if (settled) return; // Timeout already fired — ignore late resolve
+            settled = true;
             clearTimeout(timeout);
             this.setAccessToken(newToken); // Propagate to transport + recorder + worker
             resolve(newToken);

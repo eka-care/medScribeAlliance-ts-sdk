@@ -23,6 +23,8 @@ export interface ITransport {
   request<T = any>(config: TransportRequest): Promise<TransportResponse<T>>;
   setAuthToken(token: string): void;
   setApiKey(apiKey: string): void;
+  /** Clean up pending requests and resources. */
+  destroy?(): void;
 }
 
 /**

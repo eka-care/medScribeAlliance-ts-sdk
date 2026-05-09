@@ -5,12 +5,12 @@
 export interface DiscoveryDocument {
   protocol: string;
   protocol_version: string;
-  supported_versions: string[];
-  service: ServiceInfo;
+  supported_versions?: string[];
+  service?: ServiceInfo;
   endpoints: EndpointsInfo;
   authentication: AuthenticationInfo;
   capabilities: CapabilitiesInfo;
-  models: ModelConfig[];
+  models?: ModelConfig[];
   languages: LanguagesInfo;
 }
 
@@ -47,8 +47,8 @@ export interface CapabilitiesInfo {
 
 export interface ModelConfig {
   id: string;
-  display_name: string;
-  languages: string[];
+  display_name?: string;
+  languages?: string[];
   max_session_duration_seconds: number;
   response_speed?: string;
   features?: {

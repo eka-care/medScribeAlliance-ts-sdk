@@ -54,6 +54,7 @@ export class RecordingManager {
   private activeSession: CreateSessionResponse | null = null;
   private activeBaseUrl: string = '';
   private _isRecording: boolean = false;
+  private _isStarting: boolean = false;
 
   // Retry context — survives after stop(), cleared on reset() or next start()
   private retryContext: {
@@ -93,9 +94,11 @@ export class RecordingManager {
     options: RecordingOptions,
     accessToken?: string
   ): Promise<CreateSessionResponse> {
-    if (this._isRecording) {
+    if (this._isRecording || this._isStarting) {
       throw new ScribeError('Recording is already in progress. Stop the current recording first.');
     }
+
+    this._isStarting = true;
 
     // Clear any previous retry context
     this.retryContext = null;
@@ -116,70 +119,74 @@ export class RecordingManager {
       additional_data: options.additionalData,
     };
 
-    // 2. Create session — transport/validation errors possible
-    let session: CreateSessionResponse;
     try {
-      session = await this.sessionManager.createSession(baseUrl, sessionRequest);
-    } catch (error) {
-      this.dispatchStartError('transport_error', 'session_creation_failed', error);
-      throw error;
+      // 2. Create session — transport/validation errors possible
+      let session: CreateSessionResponse;
+      try {
+        session = await this.sessionManager.createSession(baseUrl, sessionRequest);
+      } catch (error) {
+        this.dispatchStartError('transport_error', 'session_creation_failed', error);
+        throw error;
+      }
+
+      this.activeSession = session;
+
+      // Dispatch session created event
+      this.callbackRegistry.dispatch('onSessionEvent', {
+        type: 'created',
+        timestamp: new Date().toISOString(),
+        data: session,
+      });
+
+      // 3. Create the appropriate recorder
+      this.recorder = this.createRecorder(uploadType);
+
+      // 4. Initialize recorder with session details
+      const recorderConfig: RecorderConfig = {
+        accessToken,
+        uploadUrl: session.upload_url,
+        uploadHeaders: this.buildUploadHeaders(accessToken),
+        sessionId: session.session_id,
+      };
+
+      try {
+        this.recorder.initialize(session, recorderConfig);
+      } catch (error) {
+        this.cleanupRecordingState();
+        this.dispatchStartError('validation_error', 'recorder_init_failed', error);
+        throw error;
+      }
+
+      // Apply discovery-driven chunk length overrides for chunked recorder
+      if (this.recorder instanceof ChunkedRecorder) {
+        this.applyDiscoveryOverrides(this.recorder);
+      }
+
+      // 5. Start recording — VAD/mic errors possible
+      try {
+        await this.recorder.start(options.deviceId);
+      } catch (error) {
+        this.cleanupRecordingState();
+        this.dispatchStartError('vad_error', 'vad_start_failed', error);
+        throw error;
+      }
+
+      this._isRecording = true;
+
+      // Dispatch recording state change
+      this.callbackRegistry.dispatch('onRecordingStateChange', {
+        type: 'started',
+        timestamp: new Date().toISOString(),
+      });
+
+      if (this.config.debug) {
+        console.log('[ScribeSDK] Recording started:', session.session_id);
+      }
+
+      return session;
+    } finally {
+      this._isStarting = false;
     }
-
-    this.activeSession = session;
-
-    // Dispatch session created event
-    this.callbackRegistry.dispatch('onSessionEvent', {
-      type: 'created',
-      timestamp: new Date().toISOString(),
-      data: session,
-    });
-
-    // 3. Create the appropriate recorder
-    this.recorder = this.createRecorder(uploadType);
-
-    // 4. Initialize recorder with session details
-    const recorderConfig: RecorderConfig = {
-      accessToken,
-      uploadUrl: session.upload_url,
-      uploadHeaders: this.buildUploadHeaders(accessToken),
-      sessionId: session.session_id,
-    };
-
-    try {
-      this.recorder.initialize(session, recorderConfig);
-    } catch (error) {
-      this.cleanupRecordingState();
-      this.dispatchStartError('validation_error', 'recorder_init_failed', error);
-      throw error;
-    }
-
-    // Apply discovery-driven chunk length overrides for chunked recorder
-    if (this.recorder instanceof ChunkedRecorder) {
-      this.applyDiscoveryOverrides(this.recorder);
-    }
-
-    // 5. Start recording — VAD/mic errors possible
-    try {
-      await this.recorder.start(options.deviceId);
-    } catch (error) {
-      this.cleanupRecordingState();
-      this.dispatchStartError('vad_error', 'vad_start_failed', error);
-      throw error;
-    }
-
-    this._isRecording = true;
-
-    // Dispatch recording state change
-    this.callbackRegistry.dispatch('onRecordingStateChange', {
-      type: 'started',
-      timestamp: new Date().toISOString(),
-    });
-
-    if (this.config.debug) {
-      console.log('[ScribeSDK] Recording started:', session.session_id);
-    }
-
-    return session;
   }
 
   /**
@@ -187,69 +194,78 @@ export class RecordingManager {
    * Use this when the session was created externally (e.g. via createSession())
    * and you want to attach a recorder to it.
    *
+   * @param baseUrl - Server base URL for ending session later
    * @param session - The existing session response (must have upload_url)
    * @param options - Upload type and optional device ID
    * @param accessToken - Current Bearer token for upload auth headers
    */
   async startWithExistingSession(
+    baseUrl: string,
     session: CreateSessionResponse,
     options?: { uploadType?: string; deviceId?: string },
     accessToken?: string
   ): Promise<void> {
-    if (this._isRecording) {
+    if (this._isRecording || this._isStarting) {
       throw new ScribeError('Recording is already in progress. Stop the current recording first.');
     }
 
+    this._isStarting = true;
+
     // Clear any previous retry context
     this.retryContext = null;
+    this.activeBaseUrl = baseUrl;
 
     const uploadType = options?.uploadType ?? 'chunked';
 
     this.activeSession = session;
 
-    // Create the appropriate recorder
-    this.recorder = this.createRecorder(uploadType);
-
-    // Initialize recorder with session details
-    const recorderConfig: RecorderConfig = {
-      accessToken,
-      uploadUrl: session.upload_url,
-      uploadHeaders: this.buildUploadHeaders(accessToken),
-      sessionId: session.session_id,
-    };
-
     try {
-      this.recorder.initialize(session, recorderConfig);
-    } catch (error) {
-      this.cleanupRecordingState();
-      this.dispatchStartError('validation_error', 'recorder_init_failed', error);
-      throw error;
-    }
+      // Create the appropriate recorder
+      this.recorder = this.createRecorder(uploadType);
 
-    // Apply discovery-driven chunk length overrides for chunked recorder
-    if (this.recorder instanceof ChunkedRecorder) {
-      this.applyDiscoveryOverrides(this.recorder);
-    }
+      // Initialize recorder with session details
+      const recorderConfig: RecorderConfig = {
+        accessToken,
+        uploadUrl: session.upload_url,
+        uploadHeaders: this.buildUploadHeaders(accessToken),
+        sessionId: session.session_id,
+      };
 
-    // Start recording — VAD/mic errors possible
-    try {
-      await this.recorder.start(options?.deviceId);
-    } catch (error) {
-      this.cleanupRecordingState();
-      this.dispatchStartError('vad_error', 'vad_start_failed', error);
-      throw error;
-    }
+      try {
+        this.recorder.initialize(session, recorderConfig);
+      } catch (error) {
+        this.cleanupRecordingState();
+        this.dispatchStartError('validation_error', 'recorder_init_failed', error);
+        throw error;
+      }
 
-    this._isRecording = true;
+      // Apply discovery-driven chunk length overrides for chunked recorder
+      if (this.recorder instanceof ChunkedRecorder) {
+        this.applyDiscoveryOverrides(this.recorder);
+      }
 
-    // Dispatch recording state change
-    this.callbackRegistry.dispatch('onRecordingStateChange', {
-      type: 'started',
-      timestamp: new Date().toISOString(),
-    });
+      // Start recording — VAD/mic errors possible
+      try {
+        await this.recorder.start(options?.deviceId);
+      } catch (error) {
+        this.cleanupRecordingState();
+        this.dispatchStartError('vad_error', 'vad_start_failed', error);
+        throw error;
+      }
 
-    if (this.config.debug) {
-      console.log('[ScribeSDK] Recording started with existing session:', session.session_id);
+      this._isRecording = true;
+
+      // Dispatch recording state change
+      this.callbackRegistry.dispatch('onRecordingStateChange', {
+        type: 'started',
+        timestamp: new Date().toISOString(),
+      });
+
+      if (this.config.debug) {
+        console.log('[ScribeSDK] Recording started with existing session:', session.session_id);
+      }
+    } finally {
+      this._isStarting = false;
     }
   }
 
@@ -421,6 +437,10 @@ export class RecordingManager {
    * Successfully retried files are removed from the retry context.
    */
   async retryFailedUploads(): Promise<RetryUploadResult> {
+    if (this._isRecording) {
+      throw new ScribeError('Cannot retry uploads while recording is active.');
+    }
+
     if (!this.retryContext || this.retryContext.failedChunks.length === 0) {
       return { retried: 0, succeeded: 0, stillFailed: [] };
     }
@@ -593,5 +613,6 @@ export class RecordingManager {
     this.activeSession = null;
     this.activeBaseUrl = '';
     this._isRecording = false;
+    this._isStarting = false;
   }
 }
