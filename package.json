@@ -2,13 +2,25 @@
   "name": "med-scribe-alliance-ts-sdk",
   "version": "2.0.0",
   "description": "TypeScript SDK for the MedScribe Alliance Protocol",
-  "main": "dist/index.js",
+  "main": "dist/index.mjs",
+  "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.ts"
+    },
+    "./worker": "./dist/worker.bundle.js"
+  },
   "scripts": {
-    "build": "tsc",
+    "build": "npm run clean && npm run build:main && npm run build:types && npm run build:worker",
+    "build:main": "vite build",
+    "build:types": "dts-bundle-generator -o dist/index.d.ts src/index.ts --no-banner",
+    "build:worker": "vite build --config vite.worker.config.ts",
+    "typecheck": "tsc --noEmit",
     "watch": "tsc --watch",
     "clean": "rm -rf dist",
-    "prepublishOnly": "npm run clean && npm run build"
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "scribe",
@@ -28,7 +40,9 @@
   ],
   "devDependencies": {
     "@types/node": "^25.0.10",
-    "typescript": "^5.9.3"
+    "dts-bundle-generator": "^9.5.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.11"
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",

@@ -24,6 +24,9 @@ export interface ScribeSDKConfig {
   /** SharedWorker config: true (require), false (disable), 'auto' (detect). Default: 'auto' */
   useWorker?: boolean | 'auto';
 
+  /** URL to the worker.bundle.js file. Use getWorkerUrl() or createWorkerBlobUrl() to resolve. */
+  workerScriptUrl?: string;
+
   /** Enable debug logging. Default: false */
   debug?: boolean;
 

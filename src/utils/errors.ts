@@ -25,8 +25,8 @@ export class ScribeError extends Error {
     this.httpStatus = httpStatus;
     this.details = details;
 
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, ScribeError);
+    if ((Error as any).captureStackTrace) {
+      (Error as any).captureStackTrace(this, ScribeError);
     }
   }
 

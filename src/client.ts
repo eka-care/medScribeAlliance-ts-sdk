@@ -441,6 +441,7 @@ export class ScribeClient {
     // 'auto' or true — let WorkerManager decide based on SharedWorker availability
     return {
       forceMainThread: false,
+      workerScriptUrl: this.config.workerScriptUrl,
     };
   }
 

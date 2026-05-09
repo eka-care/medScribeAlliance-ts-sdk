@@ -126,3 +126,6 @@ export { IpcTransport } from './transport/ipc-transport';
 
 // --- Validation ---
 export { Validator } from './validation/validator';
+
+// --- Worker URL utility ---
+export { getWorkerUrl, createWorkerBlobUrl } from './utils/get-worker-url';
