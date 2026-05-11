@@ -274,7 +274,9 @@ export class ScribeClient {
     sessionId?: string
   ): Promise<SDKResult<ProcessTemplateResponse>> {
     const baseUrl = this.getEffectiveBaseUrl();
-    return this.wrapResult(() => this.sessionManager.processTemplate(baseUrl, templateId, sessionId));
+    return this.wrapResult(() =>
+      this.sessionManager.processTemplate(baseUrl, templateId, sessionId)
+    );
   }
 
   /**
@@ -282,6 +284,19 @@ export class ScribeClient {
    * Uses the current active session if no sessionId is provided.
    */
   async cancelSession(sessionId?: string): Promise<SDKResult<PatchSessionResponse>> {
+    // Stop recording if active — destroy VAD, flush state
+    if (this.recordingManager.isRecording()) {
+      try {
+        await this.recordingManager.stop();
+      } catch {
+        // Best-effort stop
+      }
+    }
+
+    // Clean up recording state (VAD, worker, retry context)
+    this.recordingManager.reset();
+    this.sessionManager.clearCurrentSession();
+
     return this.updateSession(
       { user_status: 'cancelled', processing_status: 'cancelled' },
       sessionId
