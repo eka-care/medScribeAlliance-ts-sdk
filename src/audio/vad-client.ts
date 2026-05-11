@@ -42,7 +42,6 @@ export class VadClient {
   // VAD clipping state
   private vadPast: number[] = [];
   private lastClipIndex: number = 0;
-  private clipPoints: number[] = [0];
   private silDurationAcc: number = 0;
 
   // Chunk length thresholds (in samples)
@@ -198,7 +197,6 @@ export class VadClient {
     this.destroy();
     this.vadPast = [];
     this.lastClipIndex = 0;
-    this.clipPoints = [0];
     this.silDurationAcc = 0;
     this.noSpeechStartTime = null;
     this.lastWarningTime = null;
@@ -287,7 +285,7 @@ export class VadClient {
    * Core VAD clipping algorithm.
    * Determines if the current frame is a good point to clip the audio into a chunk.
    *
-   * Logic:
+   * Logic (mutually exclusive — first match wins):
    * 1. After preferred length: clip at long silence
    * 2. After desperate length: clip at short silence
    * 3. After max length: force clip
@@ -309,34 +307,32 @@ export class VadClient {
     const silenceSamples = this.silDurationAcc * this.frameSize;
 
     // After preferred length — clip at long silence
-    if (samplesPassed > this.prefLengthSamples) {
-      if (silenceSamples > this.longThreshold) {
-        this.lastClipIndex = this.vadPast.length - Math.min(Math.floor(this.silDurationAcc / 2), 5);
-        this.clipPoints.push(this.lastClipIndex);
-        this.silDurationAcc = 0;
-        isClipPoint = true;
-      }
+    if (samplesPassed > this.prefLengthSamples && silenceSamples > this.longThreshold) {
+      this.lastClipIndex = this.vadPast.length - Math.min(Math.floor(this.silDurationAcc / 2), 5);
+      this.silDurationAcc = 0;
+      isClipPoint = true;
     }
-
     // After desperate length — clip at short silence
-    if (samplesPassed > this.despLengthSamples) {
-      if (silenceSamples > this.shortThreshold) {
-        this.lastClipIndex = this.vadPast.length - Math.min(Math.floor(this.silDurationAcc / 2), 5);
-        this.clipPoints.push(this.lastClipIndex);
-        this.silDurationAcc = 0;
-        isClipPoint = true;
-      }
+    else if (samplesPassed > this.despLengthSamples && silenceSamples > this.shortThreshold) {
+      this.lastClipIndex = this.vadPast.length - Math.min(Math.floor(this.silDurationAcc / 2), 5);
+      this.silDurationAcc = 0;
+      isClipPoint = true;
     }
-
     // After max length — force clip
-    if (samplesPassed >= this.maxLengthSamples) {
+    else if (samplesPassed >= this.maxLengthSamples) {
       this.lastClipIndex = this.vadPast.length;
-      this.clipPoints.push(this.lastClipIndex);
       this.silDurationAcc = 0;
       isClipPoint = true;
     }
 
     this.vadPast.push(vadDecision);
+
+    // Trim history after clip to prevent unbounded memory growth
+    if (isClipPoint) {
+      this.vadPast = this.vadPast.slice(this.lastClipIndex);
+      this.lastClipIndex = 0;
+    }
+
     return isClipPoint;
   }
 

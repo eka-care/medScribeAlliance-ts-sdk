@@ -98,60 +98,38 @@ export class ChunkedRecorder implements IRecorder {
   /**
    * Configure recorder with session details (upload URL, headers).
    * Called by RecordingManager after session creation.
+   * Throws on failure — RecordingManager handles error dispatch.
    */
   initialize(session: CreateSessionResponse, config: RecorderConfig): void {
-    try {
-      if (!session.upload_url) {
-        throw new Error('Upload URL is required for chunked recording');
-      }
-
-      // Configure WorkerManager with upload destination
-      this.workerManager.setUploadConfig(session.upload_url, config.uploadHeaders);
-
-      this.initialized = true;
-    } catch (error) {
-      this.callbackRegistry.dispatch('onError', {
-        type: 'vad_error',
-        timestamp: new Date().toISOString(),
-        error: {
-          code: 'recorder_init_failed',
-          message: error instanceof Error ? error.message : 'Failed to initialize chunked recorder',
-        },
-      });
-      throw error;
+    if (!session.upload_url) {
+      throw new Error('Upload URL is required for chunked recording');
     }
+
+    // Configure WorkerManager with upload destination
+    this.workerManager.setUploadConfig(session.upload_url, config.uploadHeaders);
+
+    this.initialized = true;
   }
 
   /**
    * Initialize VAD (mic stream + MicVAD), then start recording.
+   * Throws on failure — RecordingManager handles error dispatch.
    */
   async start(deviceId?: string): Promise<void> {
-    try {
-      // Initialize VAD (acquires mic, creates MicVAD instance)
+    // Initialize VAD (acquires mic, creates MicVAD instance)
+    await this.vadClient.init(deviceId);
+
+    // If VAD is still loading after init, retry once
+    if (this.vadClient.isVadLoading()) {
       await this.vadClient.init(deviceId);
-
-      // If VAD is still loading after init, retry once
       if (this.vadClient.isVadLoading()) {
-        await this.vadClient.init(deviceId);
-        if (this.vadClient.isVadLoading()) {
-          throw new Error('VAD instance failed to initialize after retry');
-        }
+        throw new Error('VAD instance failed to initialize after retry');
       }
-
-      // Start VAD processing
-      this.vadClient.start();
-      this._isPaused = false;
-    } catch (error) {
-      this.callbackRegistry.dispatch('onError', {
-        type: 'vad_error',
-        timestamp: new Date().toISOString(),
-        error: {
-          code: 'vad_start_failed',
-          message: error instanceof Error ? error.message : 'Failed to start VAD',
-        },
-      });
-      throw error;
     }
+
+    // Start VAD processing
+    this.vadClient.start();
+    this._isPaused = false;
   }
 
   pause(): void {
@@ -182,6 +160,8 @@ export class ChunkedRecorder implements IRecorder {
   async stop(): Promise<StopRecordingResult> {
     try {
       this._isPaused = false;
+
+      // Destroy VAD (stops mic stream, releases resources)
       this.vadClient.destroy();
 
       // Flush remaining audio in buffer as the last chunk
@@ -190,8 +170,10 @@ export class ChunkedRecorder implements IRecorder {
       // Wait for all pending uploads (including the last chunk)
       await this.workerManager.waitForAllUploads();
 
-      // Reset VAD clipping state
-      this.vadClient.reset();
+      // If waitForAllUploads resolved via timeout (worker unresponsive),
+      // some chunks may still be 'pending'. Mark them as failed so they
+      // appear in failedUploads and are available for retry.
+      this.fileManager.markPendingAsFailed();
 
       return {
         failedUploads: this.fileManager.getFailedUploads(),
@@ -199,6 +181,7 @@ export class ChunkedRecorder implements IRecorder {
       };
     } catch (error) {
       console.error('[ScribeSDK] Error stopping chunked recorder:', error);
+      this.fileManager.markPendingAsFailed();
       return {
         failedUploads: this.fileManager.getFailedUploads(),
         totalFiles: this.fileManager.getChunkCount(),

@@ -3,7 +3,7 @@
  *
  * - Adds auth headers (API key or Bearer token)
  * - JSON requests for API calls, raw blob for uploads
- * - Retry logic via retryWithBackoff (3 attempts, 2s delay, skip 4xx)
+ * - Retry logic via retryWithBackoff (1 initial + 3 retries, 2s delay, skip 4xx)
  * - Maps HTTP errors to typed ScribeError subclasses
  * - Auto-retries on 401 after token refresh (deduplicated across concurrent requests)
  */
@@ -269,6 +269,16 @@ export class HttpTransport implements ITransport {
       headers[key] = value;
     });
     return headers;
+  }
+
+  /**
+   * Cancel in-flight fetch requests by aborting (best-effort).
+   * HttpTransport has no pending-request map, so this is a no-op.
+   * Included for ITransport interface parity with IpcTransport.
+   */
+  destroy(): void {
+    // No pending-request tracking in fetch-based transport.
+    // In-flight fetches will resolve/reject naturally.
   }
 
   private getRetryOptions(): RetryOptions {

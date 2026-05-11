@@ -121,12 +121,22 @@ export class WorkerManager {
   /**
    * Wait for all pending uploads to complete.
    * Called by ChunkedRecorder during stop() before ending the session.
+   * Includes a safety timeout to prevent hanging if the worker becomes unresponsive.
    */
   waitForAllUploads(): Promise<void> {
     if (this.useWorker && this.port) {
       return new Promise<void>((resolve) => {
         this.allUploadsResolver = resolve;
         this.postToWorker({ type: 'wait_for_all_uploads' });
+
+        // Safety timeout — resolve after 30s if worker never responds
+        setTimeout(() => {
+          if (this.allUploadsResolver) {
+            console.warn('[ScribeSDK] waitForAllUploads timed out after 15s');
+            this.allUploadsResolver();
+            this.allUploadsResolver = null;
+          }
+        }, 15_000);
       });
     }
 
@@ -296,7 +306,11 @@ export class WorkerManager {
       this.fileManager.markSuccess(chunkIndex);
       this.dispatchUploadProgress();
     } catch (error: any) {
-      this.fileManager.markFailure(chunkIndex, mp3Blob ?? new Blob(), error?.message ?? 'Upload failed');
+      this.fileManager.markFailure(
+        chunkIndex,
+        mp3Blob ?? new Blob(),
+        error?.message ?? 'Upload failed'
+      );
       this.callbackRegistry.dispatch('onUploadEvent', {
         type: 'failed',
         timestamp: new Date().toISOString(),

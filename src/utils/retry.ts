@@ -34,6 +34,7 @@ export async function retryWithBackoff<T>(
 
   let lastError: Error | null = null;
 
+  // Total attempts = 1 (initial) + maxRetries (retries)
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();

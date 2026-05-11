@@ -20,9 +20,11 @@ export class SingleRecorder implements IRecorder {
   private _isPaused: boolean = false;
 
   private uploadUrl: string = '';
-  private uploadHeaders: Record<string, string> = {};
   private callbackRegistry: CallbackRegistry;
   private transport: ITransport;
+
+  // Preserved for retry support
+  private failedUploadData: { fileName: string; blob: Blob } | null = null;
 
   constructor(callbackRegistry: CallbackRegistry, transport: ITransport) {
     this.callbackRegistry = callbackRegistry;
@@ -37,7 +39,7 @@ export class SingleRecorder implements IRecorder {
       throw new Error('Upload URL is required for single recording');
     }
     this.uploadUrl = session.upload_url;
-    this.uploadHeaders = config.uploadHeaders;
+    this.failedUploadData = null;
   }
 
   /**
@@ -111,10 +113,10 @@ export class SingleRecorder implements IRecorder {
         : `${this.uploadUrl}/${fileName}`;
 
       try {
+        // Auth handled by transport — no stale header override
         await this.transport.request({
           method: 'POST',
           url: fullUrl,
-          headers: this.uploadHeaders,
           isUpload: true,
           uploadBlob: audioBlob,
         });
@@ -127,6 +129,9 @@ export class SingleRecorder implements IRecorder {
 
         return { failedUploads: [], totalFiles: 1 };
       } catch (error: any) {
+        // Store blob for retry support
+        this.failedUploadData = { fileName, blob: audioBlob };
+
         this.callbackRegistry.dispatch('onUploadEvent', {
           type: 'failed',
           timestamp: new Date().toISOString(),
@@ -158,6 +163,14 @@ export class SingleRecorder implements IRecorder {
     this.releaseMicStream();
     this.mediaRecorder = null;
     this.audioChunks = [];
+    this.failedUploadData = null;
+  }
+
+  /**
+   * Get failed upload data for retry support.
+   */
+  getFailedBlobData(): Array<{ fileName: string; blob: Blob }> {
+    return this.failedUploadData ? [this.failedUploadData] : [];
   }
 
   // --- Private ---

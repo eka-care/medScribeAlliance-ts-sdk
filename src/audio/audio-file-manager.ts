@@ -144,7 +144,7 @@ export class AudioFileManager {
    */
   getFailedUploads(): string[] {
     return this.chunks
-      .filter((chunk) => chunk.status !== 'success')
+      .filter((chunk) => chunk.status === 'failure')
       .map((chunk) => chunk.fileName);
   }
 
@@ -159,6 +159,25 @@ export class AudioFileManager {
       }
     });
     return failed;
+  }
+
+  /**
+   * Mark all chunks still in 'pending' as failed.
+   * Called after waitForAllUploads() returns (including timeout)
+   * to ensure no chunk is silently lost.
+   */
+  markPendingAsFailed(): void {
+    for (let i = 0; i < this.chunks.length; i++) {
+      if (this.chunks[i].status === 'pending') {
+        this.chunks[i] = {
+          fileName: this.chunks[i].fileName,
+          timestamp: this.chunks[i].timestamp,
+          response: 'Upload did not complete (timed out or worker unresponsive)',
+          status: 'failure',
+          fileBlob: new Blob(),
+        };
+      }
+    }
   }
 
   /**

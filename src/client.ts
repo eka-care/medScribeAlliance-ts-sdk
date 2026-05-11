@@ -122,9 +122,18 @@ export class ScribeClient {
 
     const baseUrl = this.getEffectiveBaseUrl();
 
-    return this.wrapResult(() =>
-      this.recordingManager.start(baseUrl, options, this.config.accessToken)
-    );
+    return this.wrapResult(() => {
+      // Validate recording options against discovery capabilities if available
+      try {
+        const config = this.discoveryManager.getResolvedConfig();
+        this.validator.validateAgainstDiscovery(options, config);
+      } catch (e) {
+        if (e instanceof ValidationError) throw e;
+        // Discovery not available — skip validation, let server validate
+      }
+
+      return this.recordingManager.start(baseUrl, options, this.config.accessToken);
+    });
   }
 
   // TODO: getSessionDetails will return create session response?
@@ -290,9 +299,9 @@ export class ScribeClient {
       this.recordingManager.getActiveSession()?.session_id ??
       this.sessionManager.getCurrentSession()?.session_id;
 
-    // Stop recorder locally without calling endSession (avoids triggering server processing)
+    // Stop recorder immediately without calling endSession (avoids triggering server processing)
     if (this.recordingManager.isRecording()) {
-      await this.recordingManager.forceStop();
+      this.recordingManager.forceStop();
     }
 
     // Clean up remaining state (retry context, etc.)

@@ -306,6 +306,16 @@ export class SessionManager {
       }
 
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        // Check for abort before each attempt
+        if (options?.signal?.aborted) {
+          throw new ScribeError(
+            'Polling was aborted',
+            'polling_aborted',
+            undefined,
+            { session_id: id }
+          );
+        }
+
         const status = await this.getSessionStatus(baseUrl, id);
 
         // Notify progress callback
@@ -327,7 +337,7 @@ export class SessionManager {
 
         // Wait before next poll (skip wait on last attempt)
         if (attempt < maxAttempts) {
-          await this.sleep(intervalMs);
+          await this.sleepWithAbort(intervalMs, options?.signal);
         }
       }
 
@@ -376,5 +386,26 @@ export class SessionManager {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Sleep that can be interrupted by an AbortSignal.
+   */
+  private sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+    if (!signal) {
+      return this.sleep(ms);
+    }
+    return new Promise<void>((resolve, reject) => {
+      if (signal.aborted) {
+        reject(new ScribeError('Polling was aborted', 'polling_aborted'));
+        return;
+      }
+      const timer = setTimeout(resolve, ms);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new ScribeError('Polling was aborted', 'polling_aborted'));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
   }
 }

@@ -387,6 +387,17 @@ export class RecordingManager {
       return stopResult;
     } catch (error) {
       console.error('[ScribeSDK] Error stopping recording:', error);
+
+      // Dispatch error so consumers know the stop encountered a problem
+      this.callbackRegistry.dispatch('onError', {
+        type: 'transport_error',
+        timestamp: new Date().toISOString(),
+        error: {
+          code: 'stop_failed',
+          message: error instanceof Error ? error.message : 'Failed to stop recording',
+        },
+      });
+
       return { failedUploads: [], totalFiles: 0 };
     } finally {
       // 5. Clean up regardless of success/failure
@@ -395,16 +406,19 @@ export class RecordingManager {
   }
 
   /**
-   * Stop the recorder locally without calling endSession on the backend.
-   * Used by cancelSession — we don't want the server to start processing.
+   * Immediately stop the recorder without calling endSession or waiting for uploads.
+   * Used by cancelSession — we don't want the server to start processing
+   * and don't want to block on pending uploads.
    */
-  async forceStop(): Promise<void> {
+  forceStop(): void {
     if (!this.recorder || !this._isRecording) {
       return;
     }
 
     try {
-      await this.recorder.stop();
+      // reset() is immediate: destroys VAD, releases mic, terminates worker.
+      // Does NOT flush remaining audio or wait for pending uploads.
+      this.recorder.reset();
     } catch {
       // Best-effort stop
     } finally {
@@ -610,23 +624,35 @@ export class RecordingManager {
   }
 
   /**
-   * Extract failed chunks with their MP3 blobs from the recorder's FileManager
+   * Extract failed chunks with their blobs from the recorder
    * before cleanup destroys the recorder state.
+   * Supports both ChunkedRecorder and SingleRecorder.
    */
   private preserveRetryContext(): void {
-    if (!(this.recorder instanceof ChunkedRecorder)) {
+    if (!this.activeSession?.upload_url) {
+      this.retryContext = null;
       return;
     }
 
-    const failedChunks = this.recorder.getFileManager().getFailedChunksWithBlobs();
-    if (failedChunks.length === 0 || !this.activeSession?.upload_url) {
+    let failedChunks: Array<{ fileName: string; blob: Blob }> = [];
+
+    if (this.recorder instanceof ChunkedRecorder) {
+      failedChunks = this.recorder
+        .getFileManager()
+        .getFailedChunksWithBlobs()
+        .map((c) => ({ fileName: c.fileName, blob: c.fileBlob }));
+    } else if (this.recorder instanceof SingleRecorder) {
+      failedChunks = this.recorder.getFailedBlobData();
+    }
+
+    if (failedChunks.length === 0) {
       this.retryContext = null;
       return;
     }
 
     this.retryContext = {
       uploadUrl: this.activeSession.upload_url,
-      failedChunks: failedChunks.map((c) => ({ fileName: c.fileName, blob: c.fileBlob })),
+      failedChunks,
     };
 
     if (this.config.debug) {

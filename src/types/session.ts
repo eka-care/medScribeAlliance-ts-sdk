@@ -101,6 +101,8 @@ export interface PollOptions {
   maxAttempts?: number;
   intervalMs?: number;
   onProgress?: (status: GetSessionStatusResponse) => void;
+  /** AbortSignal to cancel polling early. */
+  signal?: AbortSignal;
 }
 
 // --- Patch Session ---
