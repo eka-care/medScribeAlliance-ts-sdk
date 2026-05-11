@@ -4,8 +4,7 @@ TypeScript SDK for the [MedScribe Alliance Protocol](https://github.com/MedScrib
 
 ## npm package link
 
-https://www.npmjs.com/package/med-scribe-alliance-ts-sdk      
-
+https://www.npmjs.com/package/med-scribe-alliance-ts-sdk
 
 ## Installation
 
@@ -19,56 +18,268 @@ Peer dependencies (installed automatically):
 - `@breezystack/lamejs` — MP3 encoding
 - `zod` — Schema validation
 
-## Quick Start
+---
+
+## Integration Guide (Step-by-Step)
+
+### Step 1: Create the Client
+
+The `baseUrl` is **required** — all API calls (session creation, upload, status polling) go through this URL.
 
 ```ts
 import { ScribeClient } from 'med-scribe-alliance-ts-sdk';
 
 const client = new ScribeClient({
-  baseUrl: 'https://api.example.com/voice/api/v2',
+  baseUrl: 'https://api.eka.care/voice/api/v2', // your scribe service URL
   accessToken: 'your-bearer-token',
+  debug: true, // optional: logs SDK activity to console
 });
+```
 
-// Register callbacks
+### Step 2: Initialize (Discovery)
+
+`init()` fetches the discovery document from the server. This tells the SDK what the server supports (models, languages, upload methods, audio formats, etc.).
+
+```ts
+const initResult = await client.init();
+if (!initResult.success) {
+  console.error('Init failed:', initResult.error.message);
+  return;
+}
+```
+
+> `startRecording()` calls `init()` automatically if not already initialized. You can skip this step if you go directly to recording.
+
+### Step 3: Register Callbacks
+
+Register callbacks **before** starting a recording. These are how you receive events from the SDK.
+
+```ts
+// Upload progress
 client.registerCallback('onUploadEvent', (event) => {
   if (event.type === 'progress') {
     console.log(`Uploaded ${event.data.successCount}/${event.data.totalCount}`);
   }
 });
 
+// Recording state changes
+client.registerCallback('onRecordingStateChange', (event) => {
+  console.log('Recording state:', event.type); // 'started' | 'paused' | 'resumed' | 'ended'
+});
+
+// Errors (VAD failures, network issues, validation)
 client.registerCallback('onError', (event) => {
   console.error(`[${event.error.code}] ${event.error.message}`);
 });
 
-// Start recording — creates session, starts mic, begins chunked upload
+// Auto token refresh on 401
+client.registerCallback('onTokenRequired', async (event) => {
+  const newToken = await refreshMyAuthToken();
+  event.resolve(newToken);
+});
+```
+
+### Step 4: Start Recording
+
+Creates a session, starts the microphone, and begins chunked upload in one call.
+
+```ts
 const result = await client.startRecording({
-  templates: ['soap', 'prescription'],
-  uploadType: 'chunked',
+  templates: ['soap'],           // required: template IDs for extraction
+  uploadType: 'chunked',         // 'chunked' (default) | 'single' | 'stream'
+  sessionMode: 'consultation',   // optional: 'consultation' | 'dictation'
+  transcriptLanguage: 'en',      // optional: language code for transcript output
+  languageHint: ['en', 'hi'],    // optional: language codes for audio input
+  patientDetails: {              // optional
+    name: 'John Doe',
+    age: '45',
+    gender: 'male',
+  },
+  additionalData: {},            // optional: any extra data for the session
+  txnId: 'your-transaction-id',  // optional: external transaction ID
 });
 
 if (!result.success) {
-  console.error(result.error);
+  console.error('Failed to start:', result.error.message);
+  return;
 }
 
-// ... user speaks ...
+const sessionId = result.data.session_id;
+```
 
-// Stop recording — flushes remaining audio, waits for uploads, ends session
+#### Pause / Resume
+
+```ts
+client.pauseRecording();  // pauses VAD — mic stays open, no new chunks created
+client.resumeRecording(); // resumes VAD processing
+```
+
+### Step 5: End Recording
+
+Stops the microphone, flushes the last audio chunk, waits for all uploads to complete, and tells the server the session has ended (triggers server-side processing).
+
+```ts
 const stopResult = await client.endRecording();
 
 if (stopResult.success) {
   console.log(`${stopResult.data.totalFiles} files uploaded`);
   console.log(`${stopResult.data.failedUploads.length} failed`);
 }
+```
 
-// Poll for results
-const status = await client.getSessionStatus(result.data.session_id, {
+### Step 6: Poll for Results
+
+After ending the recording, poll the server until processing is complete.
+
+```ts
+const abortController = new AbortController();
+
+const status = await client.getSessionStatus(sessionId, {
   poll: {
     maxAttempts: 60,
     intervalMs: 2000,
-    onProgress: (s) => console.log(`Status: ${s.status}`),
+    signal: abortController.signal, // optional: abort polling early
+    onProgress: (s) => {
+      console.log(`Status: ${s.status}`);
+      if (s.templates) {
+        console.log('Templates:', s.templates);
+      }
+    },
   },
 });
+
+if (status.success) {
+  console.log('Final status:', status.data.status);
+  console.log('Templates:', status.data.templates);
+  console.log('Transcript:', status.data.transcript);
+}
 ```
+
+### Step 7: Clean Up
+
+```ts
+await client.reset(); // stops recording if active, clears all state and caches
+```
+
+### Flow Diagram
+
+```
+  new ScribeClient({ baseUrl, accessToken })
+         │
+         ▼
+      init()  ──────────  Fetches discovery (auto-called by startRecording)
+         │
+         ▼
+  registerCallback()  ──  Set up event handlers before recording
+         │
+         ▼
+  startRecording()  ────  Creates session → starts mic → begins upload
+         │
+    pause / resume  ────  Optional during recording
+         │
+         ▼
+  endRecording()  ──────  Stops mic → flushes audio → ends session → triggers processing
+         │
+         ▼
+  getSessionStatus()  ──  Poll until completed/failed
+         │
+         ▼
+  Read results  ────────  templates, transcript, errors
+```
+
+---
+
+## Important Notes
+
+- **`baseUrl` is the root for all API calls.** Session creation, audio upload, status polling — everything uses this URL. Make sure it's correct and accessible.
+- **`accessToken` must be a valid Bearer token.** All API requests include `Authorization: Bearer <token>`. If it expires, register `onTokenRequired` to auto-refresh.
+- **Register callbacks before `startRecording()`.** Events fire immediately once recording starts — if callbacks aren't registered, you'll miss upload progress and errors.
+- **`endRecording()` triggers server processing.** Once you call it, the server begins processing the uploaded audio. Use `cancelSession()` instead if you don't want processing to happen.
+- **`cancelSession()` does NOT trigger processing.** It stops the recorder locally, cleans up state, and tells the server the session is cancelled. No `endSession` call is made to the backend.
+- **All async methods return `SDKResult<T>`, never throw.** Always check `result.success` before accessing `result.data`. Errors are in `result.error`.
+- **The SDK validates inputs against the discovery document.** If the server doesn't support an upload type, language, or model you requested, you'll get a `ValidationError` before the API call is made.
+- **SharedWorker is optional.** If you provide `workerScriptUrl`, the SDK offloads MP3 compression and upload to a SharedWorker. If the worker fails to load, it silently falls back to main-thread processing.
+- **Microphone permission is requested on `startRecording()`.** The browser will prompt the user for mic access. If denied, you'll get an error via `onError` callback.
+- **`reset()` is a full teardown.** It destroys the transport, clears discovery cache, removes all callbacks, and sets the client back to uninitialized state. You'll need to call `init()` (or `startRecording()`) again after reset.
+- **Polling supports `AbortSignal`.** Pass `signal` in poll options to cancel polling early (e.g. when the user navigates away).
+
+---
+
+## Other Operations
+
+### Cancel a Session
+
+Stops the recorder locally **without** triggering server-side processing, then tells the server the session is cancelled.
+
+```ts
+await client.cancelSession(); // cancels the current active session
+await client.cancelSession('specific-session-id'); // or by ID
+```
+
+### Update a Session (Patch)
+
+Update session properties after creation.
+
+```ts
+await client.updateSession({
+  patient_details: { name: 'Jane Doe', age: '30', gender: 'female' },
+  additional_data: { notes: 'Follow-up visit' },
+  templates: ['soap', 'prescription'],
+});
+```
+
+### Process a Specific Template
+
+Trigger server-side processing for a specific template.
+
+```ts
+await client.processTemplate('soap');
+await client.processTemplate('soap', 'session-id'); // with explicit session ID
+```
+
+### Two-Step Flow (Create Session + Record Separately)
+
+```ts
+// Step 1: Create session
+const session = await client.createSession({
+  templates: ['soap'],
+  upload_type: 'chunked',
+  communication_protocol: 'http',
+  session_mode: 'consultation',
+});
+
+if (!session.success) return;
+
+// Step 2: Start recording with the existing session
+await client.startRecordingWithSession(session.data, {
+  uploadType: 'chunked',
+});
+```
+
+### Get Status for a Specific Template
+
+```ts
+const status = await client.getSessionStatus(sessionId, {
+  templateId: 'soap',
+});
+```
+
+### Retry Failed Uploads
+
+```ts
+if (client.hasFailedUploads()) {
+  const retryResult = await client.retryFailedUploads();
+  console.log(`Retried: ${retryResult.data.retried}, Succeeded: ${retryResult.data.succeeded}`);
+}
+```
+
+### Update Auth Token
+
+```ts
+client.setAccessToken('new-bearer-token');
+```
+
+---
 
 ## Configuration
 
@@ -100,6 +311,24 @@ interface ScribeSDKConfig {
 }
 ```
 
+## Recording Options
+
+```ts
+interface RecordingOptions {
+  templates: string[];                   // Template IDs for extraction (required)
+  model?: string;                        // Model ID from discovery
+  languageHint?: string[];               // Language codes for audio input
+  transcriptLanguage?: string;           // Language code for transcript output
+  uploadType?: string;                   // 'chunked' | 'single' | 'stream' (default: 'chunked')
+  communicationProtocol?: string;        // 'http' | 'websocket' (default: 'http')
+  additionalData?: Record<string, any>;  // Extra data for the session
+  deviceId?: string;                     // Specific microphone device ID
+  sessionMode?: string;                  // 'consultation' | 'dictation'
+  patientDetails?: PatientDetails;       // Patient info
+  txnId?: string;                        // External transaction ID
+}
+```
+
 ## API Reference
 
 ### Lifecycle
@@ -123,42 +352,16 @@ interface ScribeSDKConfig {
 | `retryFailedUploads()` | `SDKResult<RetryUploadResult>` | Retry uploads that failed during the last recording. |
 | `hasFailedUploads()` | `boolean` | Whether there are retryable failed uploads. |
 
-#### Recording Options
-
-```ts
-interface RecordingOptions {
-  templates: string[];          // Template IDs for extraction (required)
-  model?: string;               // Model ID from discovery
-  languageHint?: string[];      // Language codes for audio input
-  transcriptLanguage?: string[];// Language codes for transcript output
-  uploadType?: string;          // 'chunked' | 'single' (default: 'chunked')
-  communicationProtocol?: string;// 'http' | 'websocket' (default: 'http')
-  additionalData?: Record<string, any>;
-  deviceId?: string;            // Specific microphone device ID
-}
-```
-
 ### Session
 
 | Method | Returns | Description |
 |---|---|---|
 | `createSession(request)` | `SDKResult<CreateSessionResponse>` | Create a session without starting a recording. |
-| `getSessionStatus(sessionId?, options?)` | `SDKResult<GetSessionStatusResponse>` | Get status. Pass `{ poll: PollOptions }` to poll until completion. |
+| `getSessionStatus(sessionId?, options?)` | `SDKResult<GetSessionStatusResponse>` | Get status. Supports `poll` and `templateId` options. |
 | `getCurrentSession()` | `CreateSessionResponse \| null` | Get the active session if any. |
-
-#### Polling
-
-Pass `poll` options to `getSessionStatus` to poll until the session reaches a terminal state:
-
-```ts
-const result = await client.getSessionStatus(sessionId, {
-  poll: {
-    maxAttempts: 60,
-    intervalMs: 2000,
-    onProgress: (status) => console.log(status.status),
-  },
-});
-```
+| `updateSession(request, sessionId?)` | `SDKResult<PatchSessionResponse>` | Patch session (patient details, status, etc.). |
+| `processTemplate(templateId, sessionId?)` | `SDKResult<ProcessTemplateResponse>` | Trigger processing for a specific template. |
+| `cancelSession(sessionId?)` | `SDKResult<PatchSessionResponse>` | Cancel session (stops recorder, no server processing). |
 
 ### Discovery
 
@@ -225,19 +428,6 @@ console.log(result.data.session_id);
 | `WorkerError` | — | SharedWorker failure |
 | `UploadError` | — | Audio upload failure |
 
-### Auto Token Refresh
-
-When a 401 is received, the SDK dispatches `onTokenRequired`. Supply a new token to retry the request:
-
-```ts
-client.registerCallback('onTokenRequired', async (event) => {
-  const newToken = await refreshMyAuthToken();
-  event.resolve(newToken);
-});
-```
-
-Concurrent 401s are deduplicated — only one callback fires regardless of how many requests failed simultaneously.
-
 ## SharedWorker Support
 
 The SDK offloads MP3 compression and upload to a SharedWorker for better main-thread performance. The worker is bundled separately as `dist/worker.bundle.js`.
@@ -298,26 +488,6 @@ const client = new ScribeClient({
 ```
 
 IPC mode always uses main-thread compression (SharedWorker can't access the IPC bridge).
-
-## Two-Step Flow
-
-For apps that need to create the session separately from recording:
-
-```ts
-// Step 1: Create session
-const session = await client.createSession({
-  templates: ['soap'],
-  upload_type: 'chunked',
-  communication_protocol: 'http',
-});
-
-if (!session.success) return;
-
-// Step 2: Start recording with the existing session
-await client.startRecordingWithSession(session.data, {
-  uploadType: 'chunked',
-});
-```
 
 ## Building from Source
 
