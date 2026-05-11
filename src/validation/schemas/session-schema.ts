@@ -28,6 +28,7 @@ export const CreateSessionRequestSchema = z.object({
       name: z.string().optional(),
       age: z.string().optional(),
       gender: z.string().optional(),
+      mobile: z.number().optional(),
     })
     .optional(),
   txn_id: z.string().optional(),
@@ -48,6 +49,7 @@ export const PatchSessionRequestSchema = z.object({
       name: z.string().optional(),
       age: z.string().optional(),
       gender: z.string().optional(),
+      mobile: z.number().optional(),
     })
     .optional(),
   additional_data: z.record(z.string(), z.any()).optional(),
@@ -70,6 +72,7 @@ export const CreateSessionResponseSchema = z.object({
       name: z.string().optional(),
       age: z.string().optional(),
       gender: z.string().optional(),
+      mobile: z.number().optional(),
     })
     .optional(),
 });
@@ -120,6 +123,7 @@ export const GetSessionStatusResponseSchema = z.object({
       name: z.string().optional(),
       age: z.string().optional(),
       gender: z.string().optional(),
+      mobile: z.number().optional(),
     })
     .optional(),
   message: z.string().optional(),

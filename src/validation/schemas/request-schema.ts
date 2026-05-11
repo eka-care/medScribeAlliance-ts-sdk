@@ -26,6 +26,7 @@ export const RecordingOptionsSchema = z.object({
       name: z.string().optional(),
       age: z.string().optional(),
       gender: z.string().optional(),
+      mobile: z.number().optional(),
     })
     .optional(),
   txnId: z.string().optional(),
