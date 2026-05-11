@@ -117,6 +117,9 @@ export class RecordingManager {
       language_hint: options.languageHint,
       transcript_language: options.transcriptLanguage,
       additional_data: options.additionalData,
+      session_mode: options.sessionMode,
+      patient_details: options.patientDetails,
+      txn_id: options.txnId,
     };
 
     try {
@@ -334,12 +337,16 @@ export class RecordingManager {
       // 2. Preserve failed chunks for retry before cleanup destroys state
       this.preserveRetryContext();
 
-      // 3. End session — tell the server how many files we sent
+      // 3. End session — tell the server how many files we sent/uploaded
       if (this.activeSession) {
         try {
+          const successfulUploads = stopResult.totalFiles - stopResult.failedUploads.length;
           const endResponse = await this.sessionManager.endSession(
             this.activeBaseUrl,
-            { audio_files_sent: stopResult.totalFiles },
+            {
+              audio_files_sent: stopResult.totalFiles,
+              audio_files_uploaded: successfulUploads,
+            },
             this.activeSession.session_id
           );
 

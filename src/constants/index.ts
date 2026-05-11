@@ -24,13 +24,15 @@ export enum SessionStatus {
 
 export enum TemplateStatus {
   SUCCESS = 'success',
-  FAILED = 'failed',
-  PROCESSING = 'processing',
+  PARTIAL_SUCCESS = 'partial_success',
+  FAILURE = 'failure',
+  IN_PROGRESS = 'in-progress',
 }
 
 export enum UploadType {
   CHUNKED = 'chunked',
   SINGLE = 'single',
+  STREAM = 'stream',
 }
 
 export enum CommunicationProtocol {

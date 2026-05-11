@@ -17,6 +17,9 @@ import {
   CreateSessionResponseSchema,
   EndSessionResponseSchema,
   GetSessionStatusResponseSchema,
+  PatchSessionRequestSchema,
+  PatchSessionResponseSchema,
+  ProcessTemplateResponseSchema,
   SessionIdSchema,
 } from './schemas/session-schema';
 import { RecordingOptionsSchema } from './schemas/request-schema';
@@ -54,6 +57,18 @@ export class Validator {
 
   validateRecordingOptions(data: unknown): void {
     this.parseWithValidationError(RecordingOptionsSchema, data, 'Invalid RecordingOptions');
+  }
+
+  validatePatchSessionRequest(data: unknown): void {
+    this.parseWithValidationError(PatchSessionRequestSchema, data, 'Invalid PatchSessionRequest');
+  }
+
+  validatePatchSessionResponse(data: unknown): void {
+    this.parseWithValidationError(PatchSessionResponseSchema, data, 'Invalid PatchSessionResponse');
+  }
+
+  validateProcessTemplateResponse(data: unknown): void {
+    this.parseWithValidationError(ProcessTemplateResponseSchema, data, 'Invalid ProcessTemplateResponse');
   }
 
   // --- Discovery-driven validation ---

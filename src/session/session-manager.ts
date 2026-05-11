@@ -4,6 +4,8 @@
  * - createSession()      — POST /sessions
  * - endSession()         — POST /sessions/{id}/end
  * - getSessionStatus()   — GET /sessions/{id}
+ * - patchSession()       — PATCH /sessions/{id}
+ * - processTemplate()    — POST /sessions/{id}/process/template/{template_id}
  * - pollForCompletion()  — polls getSessionStatus until terminal state
  *
  * All requests and responses are validated through the Validator.
@@ -17,6 +19,9 @@ import {
   EndSessionResponse,
   GetSessionStatusResponse,
   PollOptions,
+  PatchSessionRequest,
+  PatchSessionResponse,
+  ProcessTemplateResponse,
 } from '../types';
 import { SessionStatus, DEFAULT_POLL_MAX_ATTEMPTS, DEFAULT_POLL_INTERVAL_MS } from '../constants';
 import { Validator } from '../validation/validator';
@@ -136,8 +141,13 @@ export class SessionManager {
   /**
    * Get the status of a session.
    * If no sessionId is provided, queries the current session.
+   * Pass templateId to filter status for a specific template.
    */
-  async getSessionStatus(baseUrl: string, sessionId?: string): Promise<GetSessionStatusResponse> {
+  async getSessionStatus(
+    baseUrl: string,
+    sessionId?: string,
+    templateId?: string
+  ): Promise<GetSessionStatusResponse> {
     try {
       const id = sessionId ?? this.currentSession?.session_id;
 
@@ -147,7 +157,10 @@ export class SessionManager {
 
       this.validator.validateSessionId(id);
 
-      const url = `${baseUrl}/sessions/${id}`;
+      let url = `${baseUrl}/sessions/${id}`;
+      if (templateId) {
+        url += `?template_id=${encodeURIComponent(templateId)}`;
+      }
 
       if (this.debug) {
         console.log('[ScribeSDK] Getting session status:', id);
@@ -156,7 +169,6 @@ export class SessionManager {
       const response = await this.transport.request<GetSessionStatusResponse>({
         method: 'GET',
         url,
-        // TODO: what is 410
         acceptStatuses: [410], // 410 returns ExpiredSessionResponse — valid data, not an error
       });
 
@@ -173,6 +185,98 @@ export class SessionManager {
       }
       throw new ScribeError(
         `Failed to get session status: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  /**
+   * Patch an existing session (e.g., update user_status or processing_status).
+   */
+  async patchSession(
+    baseUrl: string,
+    request: PatchSessionRequest,
+    sessionId?: string
+  ): Promise<PatchSessionResponse> {
+    try {
+      const id = sessionId ?? this.currentSession?.session_id;
+
+      if (!id) {
+        throw new ScribeError('No active session. Provide a sessionId or start a session first.');
+      }
+
+      this.validator.validateSessionId(id);
+      this.validator.validatePatchSessionRequest(request);
+
+      const url = `${baseUrl}/sessions/${id}`;
+
+      if (this.debug) {
+        console.log('[ScribeSDK] Patching session:', id, request);
+      }
+
+      const response = await this.transport.request<PatchSessionResponse>({
+        method: 'PATCH',
+        url,
+        body: request,
+      });
+
+      this.validator.validatePatchSessionResponse(response.data);
+
+      if (this.debug) {
+        console.log('[ScribeSDK] Session patched:', id, response.data.status);
+      }
+
+      return response.data;
+    } catch (error) {
+      if (error instanceof ScribeError) {
+        throw error;
+      }
+      throw new ScribeError(
+        `Failed to patch session: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  /**
+   * Trigger processing for a specific template in a session.
+   */
+  async processTemplate(
+    baseUrl: string,
+    templateId: string,
+    sessionId?: string
+  ): Promise<ProcessTemplateResponse> {
+    try {
+      const id = sessionId ?? this.currentSession?.session_id;
+
+      if (!id) {
+        throw new ScribeError('No active session. Provide a sessionId or start a session first.');
+      }
+
+      this.validator.validateSessionId(id);
+
+      const url = `${baseUrl}/sessions/${id}/process/template/${encodeURIComponent(templateId)}`;
+
+      if (this.debug) {
+        console.log('[ScribeSDK] Processing template:', templateId, 'for session:', id);
+      }
+
+      const response = await this.transport.request<ProcessTemplateResponse>({
+        method: 'POST',
+        url,
+      });
+
+      this.validator.validateProcessTemplateResponse(response.data);
+
+      if (this.debug) {
+        console.log('[ScribeSDK] Template processing triggered:', templateId, response.data.status);
+      }
+
+      return response.data;
+    } catch (error) {
+      if (error instanceof ScribeError) {
+        throw error;
+      }
+      throw new ScribeError(
+        `Failed to process template: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
   }

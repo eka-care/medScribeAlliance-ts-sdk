@@ -17,11 +17,18 @@ export const RecordingOptionsSchema = z.object({
   communicationProtocol: z.string().optional(),
   model: z.string().optional(),
   languageHint: z.array(z.string().max(2, 'languageHint items must be at most 2 characters')).optional(),
-  transcriptLanguage: z
-    .array(z.string().max(2, 'transcriptLanguage items must be at most 2 characters'))
-    .optional(),
+  transcriptLanguage: z.string().optional(),
   deviceId: z.string().optional(),
   additionalData: z.record(z.string(), z.any()).optional(),
+  sessionMode: z.string().optional(),
+  patientDetails: z
+    .object({
+      name: z.string().optional(),
+      age: z.string().optional(),
+      gender: z.string().optional(),
+    })
+    .optional(),
+  txnId: z.string().optional(),
 });
 
 export type ValidatedRecordingOptions = z.infer<typeof RecordingOptionsSchema>;

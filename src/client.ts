@@ -26,6 +26,9 @@ import type {
   CallbackName,
   CreateSessionRequest,
   SDKResult,
+  PatchSessionRequest,
+  PatchSessionResponse,
+  ProcessTemplateResponse,
 } from './types';
 import { TransportMode } from './constants';
 import { ScribeError, ValidationError } from './utils/errors';
@@ -226,10 +229,11 @@ export class ScribeClient {
    * Pass `poll` options to keep checking until the session reaches a
    * terminal state (completed, partial, failed, expired) or times out.
    *
+   * Pass `templateId` to filter status for a specific template.
    */
   async getSessionStatus(
     sessionId?: string,
-    options?: { poll?: PollOptions }
+    options?: { poll?: PollOptions; templateId?: string }
   ): Promise<SDKResult<GetSessionStatusResponse>> {
     const baseUrl = this.getEffectiveBaseUrl();
     if (options?.poll) {
@@ -237,7 +241,9 @@ export class ScribeClient {
         this.sessionManager.pollForCompletion(baseUrl, sessionId, options.poll)
       );
     }
-    return this.wrapResult(() => this.sessionManager.getSessionStatus(baseUrl, sessionId));
+    return this.wrapResult(() =>
+      this.sessionManager.getSessionStatus(baseUrl, sessionId, options?.templateId)
+    );
   }
 
   /**
@@ -245,6 +251,41 @@ export class ScribeClient {
    */
   getCurrentSession(): CreateSessionResponse | null {
     return this.recordingManager.getActiveSession() ?? this.sessionManager.getCurrentSession();
+  }
+
+  /**
+   * Patch/update a session (e.g., update user_status or processing_status).
+   * Uses the current active session if no sessionId is provided.
+   */
+  async updateSession(
+    request: PatchSessionRequest,
+    sessionId?: string
+  ): Promise<SDKResult<PatchSessionResponse>> {
+    const baseUrl = this.getEffectiveBaseUrl();
+    return this.wrapResult(() => this.sessionManager.patchSession(baseUrl, request, sessionId));
+  }
+
+  /**
+   * Trigger processing for a specific template in a session.
+   * Uses the current active session if no sessionId is provided.
+   */
+  async processTemplate(
+    templateId: string,
+    sessionId?: string
+  ): Promise<SDKResult<ProcessTemplateResponse>> {
+    const baseUrl = this.getEffectiveBaseUrl();
+    return this.wrapResult(() => this.sessionManager.processTemplate(baseUrl, templateId, sessionId));
+  }
+
+  /**
+   * Cancel a session by setting both user_status and processing_status to 'cancelled'.
+   * Uses the current active session if no sessionId is provided.
+   */
+  async cancelSession(sessionId?: string): Promise<SDKResult<PatchSessionResponse>> {
+    return this.updateSession(
+      { user_status: 'cancelled', processing_status: 'cancelled' },
+      sessionId
+    );
   }
 
   // --- Discovery ---

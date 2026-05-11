@@ -25,6 +25,7 @@ export interface EndpointsInfo {
   webhooks_url?: string;
   authorization_endpoint?: string;
   token_endpoint?: string;
+  templates_url?: string;
 }
 
 export interface AuthenticationInfo {

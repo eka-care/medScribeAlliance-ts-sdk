@@ -20,16 +20,40 @@ export const CreateSessionRequestSchema = z.object({
   communication_protocol: z.string().min(1, 'communication_protocol is required'),
   model: z.string().optional(),
   language_hint: z.array(z.string().max(2, 'language_hint items must be at most 2 characters')).optional(),
-  transcript_language: z
-    .array(z.string().max(2, 'transcript_language items must be at most 2 characters'))
-    .optional(),
+  transcript_language: z.string().optional(),
   additional_data: z.record(z.string(), z.any()).optional(),
+  session_mode: z.string().optional(),
+  patient_details: z
+    .object({
+      name: z.string().optional(),
+      age: z.string().optional(),
+      gender: z.string().optional(),
+    })
+    .optional(),
+  txn_id: z.string().optional(),
 });
 
 export type ValidatedCreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>;
 
 export const EndSessionRequestSchema = z.object({
   audio_files_sent: z.number().int().min(0, 'audio_files_sent must be a non-negative integer'),
+  audio_files_uploaded: z.number().int().min(0, 'audio_files_uploaded must be a non-negative integer'),
+});
+
+export const PatchSessionRequestSchema = z.object({
+  user_status: z.string().optional(),
+  processing_status: z.string().optional(),
+  patient_details: z
+    .object({
+      name: z.string().optional(),
+      age: z.string().optional(),
+      gender: z.string().optional(),
+    })
+    .optional(),
+  additional_data: z.record(z.string(), z.any()).optional(),
+  language_hint: z.array(z.string()).optional(),
+  transcript_language: z.string().optional(),
+  templates: z.array(z.string()).optional(),
 });
 
 // --- Response schemas ---
@@ -41,6 +65,13 @@ export const CreateSessionResponseSchema = z.object({
   created_at: z.string(),
   expires_at: z.string(),
   upload_url: z.string().min(1, 'upload_url is required'),
+  patient_details: z
+    .object({
+      name: z.string().optional(),
+      age: z.string().optional(),
+      gender: z.string().optional(),
+    })
+    .optional(),
 });
 
 // Spec: session_id, status, message, audio_files_received, audio_files are all REQUIRED
@@ -52,21 +83,21 @@ export const EndSessionResponseSchema = z.object({
   audio_files: z.array(z.string()),
 });
 
-// Spec: session_id, status, created_at, audio_files_received, audio_files are REQUIRED
-// Other fields are optional and depend on session state
+// Spec: session_id, status, created_at, audio_files_received, audio_files, additional_data are REQUIRED
 export const GetSessionStatusResponseSchema = z.object({
   session_id: z.string().min(1, 'session_id is required'),
   status: z.string(),
   created_at: z.string(),
   expires_at: z.string().optional(),
+  expired_at: z.string().optional(),
   completed_at: z.string().optional(),
   model_used: z.string().optional(),
   language_detected: z.string().optional(),
   audio_files_received: z.number().int(),
   audio_files: z.array(z.string()),
   audio_files_processed: z.number().int().optional(),
-  additional_data: z.record(z.string(), z.any()).optional(),
-  templates: z.record(z.string(), z.any()).optional(),
+  additional_data: z.record(z.string(), z.any()),
+  templates: z.array(z.record(z.string(), z.any())).optional(),
   transcript: z.string().nullable().optional(),
   processing_errors: z
     .array(
@@ -84,6 +115,27 @@ export const GetSessionStatusResponseSchema = z.object({
       details: z.record(z.string(), z.any()).optional(),
     })
     .optional(),
+  patient_details: z
+    .object({
+      name: z.string().optional(),
+      age: z.string().optional(),
+      gender: z.string().optional(),
+    })
+    .optional(),
+  message: z.string().optional(),
+});
+
+export const PatchSessionResponseSchema = z.object({
+  session_id: z.string().min(1, 'session_id is required'),
+  status: z.string(),
+  message: z.string(),
+});
+
+export const ProcessTemplateResponseSchema = z.object({
+  session_id: z.string().min(1, 'session_id is required'),
+  template_id: z.string(),
+  status: z.string(),
+  message: z.string(),
 });
 
 // --- Parameter schemas ---

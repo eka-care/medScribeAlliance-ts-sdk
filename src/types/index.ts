@@ -37,11 +37,15 @@ export type {
   EndSessionRequest,
   EndSessionResponse,
   GetSessionStatusResponse,
-  TemplatesOutput,
   TemplateEntry,
+  TemplateEntryData,
   TemplateError,
   ProcessingError,
   PollOptions,
+  PatientDetails,
+  PatchSessionRequest,
+  PatchSessionResponse,
+  ProcessTemplateResponse,
 } from './session';
 
 // Recording

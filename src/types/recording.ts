@@ -2,17 +2,20 @@
  * Recording types
  */
 
-import { CreateSessionResponse } from './session';
+import { CreateSessionResponse, PatientDetails } from './session';
 
 export interface RecordingOptions {
   templates: string[];
   model?: string;
   languageHint?: string[];
-  transcriptLanguage?: string[];
+  transcriptLanguage?: string;
   uploadType?: string;
   communicationProtocol?: string;
   additionalData?: Record<string, any>;
   deviceId?: string;
+  sessionMode?: string;
+  patientDetails?: PatientDetails;
+  txnId?: string;
 }
 
 export interface RecorderConfig {
