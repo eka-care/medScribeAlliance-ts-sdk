@@ -1,6 +1,6 @@
 {
   "name": "med-scribe-alliance-ts-sdk",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "description": "TypeScript SDK for the MedScribe Alliance Protocol",
   "main": "dist/index.mjs",
   "module": "dist/index.mjs",
