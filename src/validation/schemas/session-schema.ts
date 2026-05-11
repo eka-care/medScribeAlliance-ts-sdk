@@ -31,7 +31,7 @@ export const CreateSessionRequestSchema = z.object({
       mobile: z.number().optional(),
     })
     .optional(),
-  txn_id: z.string().optional(),
+  session_id: z.string().optional(),
 });
 
 export type ValidatedCreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>;
@@ -74,6 +74,7 @@ export const CreateSessionResponseSchema = z.object({
       gender: z.string().optional(),
       mobile: z.number().optional(),
     })
+    .nullable()
     .optional(),
 });
 
@@ -125,6 +126,7 @@ export const GetSessionStatusResponseSchema = z.object({
       gender: z.string().optional(),
       mobile: z.number().optional(),
     })
+    .nullable()
     .optional(),
   message: z.string().optional(),
 });

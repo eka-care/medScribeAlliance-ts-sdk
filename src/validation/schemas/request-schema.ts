@@ -29,7 +29,7 @@ export const RecordingOptionsSchema = z.object({
       mobile: z.number().optional(),
     })
     .optional(),
-  txnId: z.string().optional(),
+  sessionId: z.string().optional(),
 });
 
 export type ValidatedRecordingOptions = z.infer<typeof RecordingOptionsSchema>;

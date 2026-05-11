@@ -25,6 +25,8 @@ import type {
   CallbackMap,
   CallbackName,
   CreateSessionRequest,
+  EndSessionRequest,
+  EndSessionResponse,
   SDKResult,
   PatchSessionRequest,
   PatchSessionResponse,
@@ -229,6 +231,18 @@ export class ScribeClient {
   ): Promise<SDKResult<CreateSessionResponse>> {
     const baseUrl = this.getEffectiveBaseUrl();
     return this.wrapResult(() => this.sessionManager.createSession(baseUrl, sessionRequest));
+  }
+
+  /**
+   * End a session directly (without stopping a recording).
+   * Uses the current active session if no sessionId is provided.
+   */
+  async endSession(
+    request: EndSessionRequest,
+    sessionId?: string
+  ): Promise<SDKResult<EndSessionResponse>> {
+    const baseUrl = this.getEffectiveBaseUrl();
+    return this.wrapResult(() => this.sessionManager.endSession(baseUrl, request, sessionId));
   }
 
   /**
