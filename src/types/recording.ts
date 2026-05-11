@@ -2,7 +2,7 @@
  * Recording types
  */
 
-import { CreateSessionResponse, PatientDetails } from './session';
+import { CreateSessionResponse, EndSessionResponse, PatientDetails } from './session';
 
 export interface RecordingOptions {
   templates: string[];
@@ -38,6 +38,7 @@ export interface IRecorder {
 export interface StopRecordingResult {
   failedUploads: string[];
   totalFiles: number;
+  endSessionResponse?: EndSessionResponse;
 }
 
 /**

@@ -338,6 +338,8 @@ export class RecordingManager {
       this.preserveRetryContext();
 
       // 3. End session — tell the server how many files we sent/uploaded
+      const result: StopRecordingResult = { ...stopResult };
+
       if (this.activeSession) {
         try {
           const successfulUploads = stopResult.totalFiles - stopResult.failedUploads.length;
@@ -349,6 +351,8 @@ export class RecordingManager {
             },
             this.activeSession.session_id
           );
+
+          result.endSessionResponse = endResponse;
 
           // Dispatch session ended event
           this.callbackRegistry.dispatch('onSessionEvent', {
@@ -374,17 +378,17 @@ export class RecordingManager {
       this.callbackRegistry.dispatch('onRecordingStateChange', {
         type: 'ended',
         timestamp: new Date().toISOString(),
-        data: stopResult,
+        data: result,
       });
 
       if (this.config.debug) {
         console.log('[ScribeSDK] Recording stopped:', {
-          totalFiles: stopResult.totalFiles,
-          failedUploads: stopResult.failedUploads.length,
+          totalFiles: result.totalFiles,
+          failedUploads: result.failedUploads.length,
         });
       }
 
-      return stopResult;
+      return result;
     } catch (error) {
       console.error('[ScribeSDK] Error stopping recording:', error);
 
