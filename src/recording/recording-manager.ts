@@ -119,7 +119,7 @@ export class RecordingManager {
       additional_data: options.additionalData,
       session_mode: options.sessionMode,
       patient_details: options.patientDetails,
-      txn_id: options.txnId,
+      session_id: options.sessionId,
     };
 
     try {

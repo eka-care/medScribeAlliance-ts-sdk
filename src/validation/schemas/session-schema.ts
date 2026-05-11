@@ -31,7 +31,7 @@ export const CreateSessionRequestSchema = z.object({
       mobile: z.number().optional(),
     })
     .optional(),
-  txn_id: z.string().optional(),
+  session_id: z.string().optional(),
 });
 
 export type ValidatedCreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>;

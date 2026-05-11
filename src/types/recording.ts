@@ -15,7 +15,7 @@ export interface RecordingOptions {
   deviceId?: string;
   sessionMode?: string;
   patientDetails?: PatientDetails;
-  txnId?: string;
+  sessionId?: string;
 }
 
 export interface RecorderConfig {

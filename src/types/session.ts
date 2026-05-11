@@ -22,7 +22,7 @@ export interface CreateSessionRequest {
   additional_data?: Record<string, any>;
   session_mode?: string;
   patient_details?: PatientDetails;
-  txn_id?: string;
+  session_id?: string;
 }
 
 export interface CreateSessionResponse {
