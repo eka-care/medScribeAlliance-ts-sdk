@@ -1,382 +1,339 @@
+# MedScribe Alliance TS SDK
 
-# Scribe EMR Protocol SDK
+TypeScript SDK for the [MedScribe Alliance Protocol](https://github.com/MedScribeAlliance/scribe-emr-protocol) — handles discovery, recording, audio chunking (VAD), MP3 compression, upload, session lifecycle, and output retrieval.
 
-A TypeScript SDK for the [MedScribe Alliance Protocol](https://github.com/MedScribeAlliance/scribe-emr-protocol), providing a clean and type-safe interface for medical transcription services.
+## npm package link
 
-## Features
+https://www.npmjs.com/package/med-scribe-alliance-ts-sdk      
 
-- ✅ **Protocol Compliant**: Fully implements the MedScribe Alliance Protocol specification
-- ✅ **Type-Safe**: Complete TypeScript definitions for all API interactions
-- ✅ **Auto-Discovery**: Automatic service capability discovery via well-known endpoint
-- ✅ **Schema Validation**: AJV-powered validation against OpenAPI schemas
-- ✅ **Error Handling**: Comprehensive error handling with typed error codes
-- ✅ **Event System**: Built-in event emitter for session lifecycle events
-- ✅ **Polling Support**: Automatic polling for session completion
 
 ## Installation
 
 ```bash
-npm install scribe-standard-sdk
+npm install med-scribe-alliance-ts-sdk
 ```
+
+Peer dependencies (installed automatically):
+
+- `@ricky0123/vad-web` — Voice Activity Detection
+- `@breezystack/lamejs` — MP3 encoding
+- `zod` — Schema validation
 
 ## Quick Start
 
-```typescript
-import { ScribeClient } from 'scribe-standard-sdk';
+```ts
+import { ScribeClient } from 'med-scribe-alliance-ts-sdk';
 
-// Initialize the SDK
 const client = new ScribeClient({
-  apiKey: 'your-api-key',
-  baseUrl: 'https://api.scribe.example.com',
-  debug: true, // Optional: enable debug logging
+  baseUrl: 'https://api.example.com/voice/api/v2',
+  accessToken: 'your-bearer-token',
 });
 
-// Initialize (performs discovery)
-await client.init();
-
-// Start a recording session
-const session = await client.startRecording({
-  templates: ['soap', 'medications'],
-  languageHint: ['en'],
-  model: 'pro',
-});
-
-console.log('Session created:', session.session_id);
-console.log('Upload audio to:', session.upload_url);
-
-// ... Upload audio chunks to session.upload_url ...
-
-// End the recording session
-const endResponse = await client.endRecording();
-console.log('Session ended, processing started');
-
-// Poll for completion
-const result = await client.pollForCompletion(session.session_id, {
-  maxAttempts: 60,
-  intervalMs: 2000,
-  onProgress: (status) => {
-    console.log('Status:', status.status);
-  },
-});
-
-// Access the results
-if (result.status === 'completed') {
-  console.log('Transcript:', result.transcript);
-  console.log('Templates:', result.templates);
-}
-```
-
-## Core API
-
-### ScribeClient
-
-The main SDK client class.
-
-#### Constructor
-
-```typescript
-new ScribeClient(config: ScribeSDKConfig)
-```
-
-**Config Options:**
-- `apiKey` (required): Your API key for authentication
-- `baseUrl` (optional): Base URL of the Scribe service
-- `debug` (optional): Enable debug logging (default: `false`)
-- `autoDiscovery` (optional): Auto-fetch service capabilities (default: `true`)
-
-#### Methods
-
-##### `init(): Promise<void>`
-
-Initialize the SDK and perform service discovery.
-
-```typescript
-await client.init();
-```
-
-##### `startRecording(options: RecordingOptions): Promise<CreateSessionResponse>`
-
-Start a new recording session.
-
-**Options:**
-- `templates` (required): Array of template IDs to extract (e.g., `['soap', 'medications']`)
-- `model` (optional): Model ID from discovery
-- `languageHint` (optional): Array of ISO 639-1 language codes for audio input (e.g., `['en', 'es']`)
-- `transcriptLanguage` (optional): Array of ISO 639-1 codes for transcript output (e.g., `['en']`)
-- `uploadType` (optional): `'chunked'` or `'single'`
-- `communicationProtocol` (optional): `'http'`, `'websocket'`, or `'rpc'` (default: `'http'`)
-- `additionalData` (optional): Pass-through data for your application
-
-**Returns:**
-- `session_id`: Unique session identifier
-- `status`: Session status (`'created'`)
-- `created_at`: ISO 8601 timestamp
-- `expires_at`: ISO 8601 expiry timestamp
-- `upload_url`: URL for uploading audio
-
-```typescript
-const session = await client.startRecording({
-  templates: ['soap'],
-  languageHint: ['en'],
-  transcriptLanguage: ['en'],
-  additionalData: {
-    patient_id: 'pat_123',
-    encounter_id: 'enc_456',
-  },
-});
-```
-
-##### `endRecording(): Promise<EndSessionResponse>`
-
-End the current recording session and trigger processing.
-
-```typescript
-const response = await client.endRecording();
-```
-
-##### `getOutputStatus(sessionId?: string): Promise<GetSessionStatusResponse>`
-
-Get the current status and results of a session.
-
-```typescript
-const status = await client.getOutputStatus(session.session_id);
-
-if (status.status === 'completed') {
-  console.log('Transcript:', status.transcript);
-  console.log('Templates:', status.templates);
-}
-```
-
-**Session Status Values:**
-- `created`: Session created, awaiting audio
-- `processing`: Audio is being processed
-- `completed`: Processing complete, all templates successful
-- `partial`: Processing complete, some templates failed
-- `failed`: Processing failed completely
-
-##### `pollForCompletion(sessionId?, options?): Promise<GetSessionStatusResponse>`
-
-Poll for session completion with automatic retries.
-
-```typescript
-const result = await client.pollForCompletion(session.session_id, {
-  maxAttempts: 60,      // Maximum polling attempts
-  intervalMs: 2000,     // Interval between polls (ms)
-  onProgress: (status) => {
-    console.log('Current status:', status.status);
-  },
-});
-```
-
-##### `getCurrentSession(): CreateSessionResponse | null`
-
-Get the current active session.
-
-```typescript
-const currentSession = client.getCurrentSession();
-```
-
-##### `getDiscoveryDocument(): DiscoveryDocument | null`
-
-Get the cached discovery document.
-
-```typescript
-const discovery = client.getDiscoveryDocument();
-console.log('Supported models:', discovery?.models);
-console.log('Supported languages:', discovery?.languages.supported);
-```
-
-## Event System
-
-The SDK emits events for session lifecycle tracking.
-
-```typescript
-client.on('discovery:complete', (event) => {
-  console.log('Discovery complete:', event.data);
-});
-
-client.on('session:created', (event) => {
-  console.log('Session created:', event.data);
-});
-
-client.on('session:ended', (event) => {
-  console.log('Session ended:', event.data);
-});
-
-client.on('session:status_update', (event) => {
-  console.log('Status update:', event.data);
-});
-
-client.on('error', (event) => {
-  console.error('Error:', event.error);
-});
-```
-
-## Schema Validation
-
-The SDK automatically validates all API requests against the OpenAPI schema using AJV. This ensures that:
-
-- Request bodies conform to the expected structure
-- Required fields are present
-- Field types match the specification
-- Session IDs follow the correct pattern (`ses_[a-zA-Z0-9]+`)
-- Enum values are valid (e.g., `model`, `upload_type`, `communication_protocol`)
-
-Validation happens automatically before any API call:
-
-```typescript
-// This will throw a ValidationError if the request is invalid
-try {
-  const session = await client.startRecording({
-    templates: ['soap', 'medications'],
-    model: 'invalid-model', // ❌ Will fail validation if not in enum
-    uploadType: 'chunked',
-  });
-} catch (error) {
-  if (error instanceof ValidationError) {
-    console.error('Validation failed:', error.message);
-    // Example: "Validation failed for CreateSessionRequest:
-    //           - /model: must be equal to one of the allowed values (allowed values: pro, lite)"
+// Register callbacks
+client.registerCallback('onUploadEvent', (event) => {
+  if (event.type === 'progress') {
+    console.log(`Uploaded ${event.data.successCount}/${event.data.totalCount}`);
   }
+});
+
+client.registerCallback('onError', (event) => {
+  console.error(`[${event.error.code}] ${event.error.message}`);
+});
+
+// Start recording — creates session, starts mic, begins chunked upload
+const result = await client.startRecording({
+  templates: ['soap', 'prescription'],
+  uploadType: 'chunked',
+});
+
+if (!result.success) {
+  console.error(result.error);
+}
+
+// ... user speaks ...
+
+// Stop recording — flushes remaining audio, waits for uploads, ends session
+const stopResult = await client.endRecording();
+
+if (stopResult.success) {
+  console.log(`${stopResult.data.totalFiles} files uploaded`);
+  console.log(`${stopResult.data.failedUploads.length} failed`);
+}
+
+// Poll for results
+const status = await client.getSessionStatus(result.data.session_id, {
+  poll: {
+    maxAttempts: 60,
+    intervalMs: 2000,
+    onProgress: (s) => console.log(`Status: ${s.status}`),
+  },
+});
+```
+
+## Configuration
+
+```ts
+interface ScribeSDKConfig {
+  /** Base URL of the scribe service (required) */
+  baseUrl: string;
+
+  /** Bearer token for authentication */
+  accessToken?: string;
+
+  /** Transport mode: 'direct' (HTTP) or 'ipc' (Electron). Default: 'direct' */
+  mode?: 'direct' | 'ipc';
+
+  /** IPC bridge — required when mode is 'ipc' */
+  ipcTransport?: IpcBridge;
+
+  /** SharedWorker: true (require), false (disable), 'auto' (detect). Default: 'auto' */
+  useWorker?: boolean | 'auto';
+
+  /** URL to worker.bundle.js. Use getWorkerUrl() to resolve. */
+  workerScriptUrl?: string;
+
+  /** Enable debug logging. Default: false */
+  debug?: boolean;
+
+  /** Auto-fetch discovery document on init. Default: true */
+  autoDiscovery?: boolean;
 }
 ```
 
-**Validated Operations:**
-- `createSession()`: Validates request body against `CreateSessionRequest` schema
-- `getSessionStatus()`: Validates session ID format
-- `endSession()`: Validates session ID format
-- `pollSessionStatus()`: Validates session ID format
+## API Reference
 
-You can also use the validator directly for custom validation:
+### Lifecycle
 
-```typescript
-import { schemaValidator } from 'scribe-standard-sdk/utils/validator';
+| Method | Returns | Description |
+|---|---|---|
+| `init()` | `SDKResult<void>` | Fetch discovery document. Called automatically by `startRecording`. |
+| `reset()` | `Promise<void>` | Stop recording, clear all state and caches. |
 
-// Validate a session ID
-try {
-  schemaValidator.validateSessionId('ses_abc123');
-} catch (error) {
-  console.error('Invalid session ID:', error.message);
-}
+### Recording
 
-// Validate a create session request
-try {
-  schemaValidator.validateCreateSessionRequest({
-    templates: ['soap'],
-    upload_type: 'chunked',
-    communication_protocol: 'http',
-  });
-} catch (error) {
-  console.error('Invalid request:', error.message);
+| Method | Returns | Description |
+|---|---|---|
+| `startRecording(options)` | `SDKResult<CreateSessionResponse>` | Create session + start mic + begin upload. |
+| `startRecordingWithSession(session, options?)` | `SDKResult<void>` | Attach recorder to an existing session. |
+| `pauseRecording()` | `void` | Pause VAD (mic stays open, no chunks created). |
+| `resumeRecording()` | `void` | Resume VAD processing. |
+| `endRecording()` | `SDKResult<StopRecordingResult>` | Stop mic, flush audio, wait for uploads, end session. |
+| `isRecording()` | `boolean` | Whether a recording is active. |
+| `isRecordingPaused()` | `boolean` | Whether the active recording is paused. |
+| `retryFailedUploads()` | `SDKResult<RetryUploadResult>` | Retry uploads that failed during the last recording. |
+| `hasFailedUploads()` | `boolean` | Whether there are retryable failed uploads. |
+
+#### Recording Options
+
+```ts
+interface RecordingOptions {
+  templates: string[];          // Template IDs for extraction (required)
+  model?: string;               // Model ID from discovery
+  languageHint?: string[];      // Language codes for audio input
+  transcriptLanguage?: string[];// Language codes for transcript output
+  uploadType?: string;          // 'chunked' | 'single' (default: 'chunked')
+  communicationProtocol?: string;// 'http' | 'websocket' (default: 'http')
+  additionalData?: Record<string, any>;
+  deviceId?: string;            // Specific microphone device ID
 }
 ```
+
+### Session
+
+| Method | Returns | Description |
+|---|---|---|
+| `createSession(request)` | `SDKResult<CreateSessionResponse>` | Create a session without starting a recording. |
+| `getSessionStatus(sessionId?, options?)` | `SDKResult<GetSessionStatusResponse>` | Get status. Pass `{ poll: PollOptions }` to poll until completion. |
+| `getCurrentSession()` | `CreateSessionResponse \| null` | Get the active session if any. |
+
+#### Polling
+
+Pass `poll` options to `getSessionStatus` to poll until the session reaches a terminal state:
+
+```ts
+const result = await client.getSessionStatus(sessionId, {
+  poll: {
+    maxAttempts: 60,
+    intervalMs: 2000,
+    onProgress: (status) => console.log(status.status),
+  },
+});
+```
+
+### Discovery
+
+| Method | Returns | Description |
+|---|---|---|
+| `getDiscoveryDocument()` | `DiscoveryDocument \| null` | Raw discovery document. |
+| `getDiscoveryConfig()` | `SDKResult<ResolvedConfig>` | Resolved config from discovery. |
+| `refreshDiscovery()` | `SDKResult<ResolvedConfig>` | Force-refresh discovery. |
+
+### Auth
+
+| Method | Description |
+|---|---|
+| `setAccessToken(token)` | Update Bearer token. Propagates to transport, recorder, and worker. |
+
+### Callbacks
+
+Register with `client.registerCallback(name, handler)`, remove with `client.removeCallback(name, handler)`.
+
+| Callback | Payload | Description |
+|---|---|---|
+| `onRecordingStateChange` | `RecordingStateChangeEvent` | Recording started, paused, resumed, or ended. |
+| `onAudioEvent` | `AudioEvent` | Speech detection, silence warnings, chunk ready. |
+| `onUploadEvent` | `UploadEvent` | Upload progress and failures. |
+| `onSessionEvent` | `SessionEvent` | Session created, ended, status updates. |
+| `onError` | `ErrorEvent` | VAD, worker, transport, or validation errors. |
+| `onTokenRequired` | `TokenRequiredEvent` | 401 received — call `event.resolve(newToken)` to retry. |
 
 ## Error Handling
 
-The SDK provides typed error classes for different error scenarios:
+All public async methods return `SDKResult<T>` — errors are returned, not thrown:
 
-```typescript
-import {
-  ScribeError,
-  AuthenticationError,
-  SessionNotFoundError,
-  SessionExpiredError,
-  RateLimitError,
-  ValidationError,
-} from 'scribe-standard-sdk';
-
-try {
-  await client.startRecording({ templates: ['soap'] });
-} catch (error) {
-  if (error instanceof ValidationError) {
-    console.error('Validation error:', error.message);
-  } else if (error instanceof AuthenticationError) {
-    console.error('Authentication failed:', error.message);
-  } else if (error instanceof SessionExpiredError) {
-    console.error('Session expired:', error.details);
-  } else if (error instanceof RateLimitError) {
-    console.error('Rate limited, retry after:', error.details?.retry_after_seconds);
-  } else if (error instanceof ScribeError) {
-    console.error('Scribe error:', error.code, error.message);
-  }
-}
+```ts
+type SDKResult<T> =
+  | { success: true; data: T }
+  | { success: false; error: ScribeError };
 ```
 
-## Template Output
+```ts
+const result = await client.startRecording({ templates: ['soap'] });
 
-When a session completes, the `templates` field contains the extracted data:
-
-```typescript
-const status = await client.getOutputStatus(sessionId);
-
-if (status.templates) {
-  // Check SOAP template
-  const soap = status.templates['soap'];
-  if (soap.status === 'success') {
-    console.log('SOAP Note:', soap.data);
-  } else {
-    console.error('SOAP extraction failed:', soap.error);
-  }
-
-  // Check medications template
-  const meds = status.templates['medications'];
-  if (meds.status === 'success') {
-    console.log('Medications:', meds.data);
-  }
+if (!result.success) {
+  console.error(result.error.code, result.error.message);
+  return;
 }
+
+// result.data is typed as CreateSessionResponse
+console.log(result.data.session_id);
 ```
 
-## Discovery Document
+### Error Classes
 
-The discovery document provides service capabilities:
+| Error | HTTP | Description |
+|---|---|---|
+| `ScribeError` | — | Base error class |
+| `ValidationError` | 400 | Invalid request or config |
+| `AuthenticationError` | 401 | Auth failed (after token refresh attempt) |
+| `ForbiddenError` | 403 | Access denied |
+| `SessionNotFoundError` | 404 | Session doesn't exist |
+| `SessionExpiredError` | 410 | Session expired |
+| `RateLimitError` | 429 | Rate limit exceeded |
+| `DiscoveryError` | — | Discovery fetch/parse failed |
+| `TransportError` | — | Network / IPC failure |
+| `WorkerError` | — | SharedWorker failure |
+| `UploadError` | — | Audio upload failure |
 
-```typescript
-const discovery = client.getDiscoveryDocument();
+### Auto Token Refresh
 
-// Check supported audio formats
-console.log('Audio formats:', discovery.capabilities.audio_formats);
+When a 401 is received, the SDK dispatches `onTokenRequired`. Supply a new token to retry the request:
 
-// Check max chunk duration
-console.log('Max chunk duration:', discovery.capabilities.max_chunk_duration_seconds);
-
-// Check available models
-discovery.models.forEach((model) => {
-  console.log(`Model: ${model.id}`);
-  console.log(`  Languages: ${model.languages.join(', ')}`);
-  console.log(`  Max duration: ${model.max_session_duration_seconds}s`);
-  console.log(`  Features:`, model.features);
+```ts
+client.registerCallback('onTokenRequired', async (event) => {
+  const newToken = await refreshMyAuthToken();
+  event.resolve(newToken);
 });
 ```
 
-## TypeScript Support
+Concurrent 401s are deduplicated — only one callback fires regardless of how many requests failed simultaneously.
 
-The SDK is written in TypeScript and provides full type definitions:
+## SharedWorker Support
 
-```typescript
-import type {
-  ScribeSDKConfig,
-  RecordingOptions,
-  CreateSessionResponse,
-  GetSessionStatusResponse,
-  TemplatesOutput,
-  DiscoveryDocument,
-} from 'scribe-standard-sdk';
+The SDK offloads MP3 compression and upload to a SharedWorker for better main-thread performance. The worker is bundled separately as `dist/worker.bundle.js`.
+
+### Setup
+
+```ts
+import { ScribeClient, getWorkerUrl } from 'med-scribe-alliance-ts-sdk';
+
+const client = new ScribeClient({
+  baseUrl: 'https://api.example.com',
+  workerScriptUrl: getWorkerUrl(), // or a custom path
+});
 ```
 
-## Protocol Compliance
+### Serving the Worker
 
-This SDK implements the following specifications:
+The worker file must be served as a static asset:
 
-- **Spec 04**: Discovery - Service capability discovery via well-known endpoint
-- **Spec 06**: Session Lifecycle - Create, get status, and end sessions
-- **Spec 09**: Extraction & Response - Template output and transcript handling
-- **Spec 11**: Error Handling - Standard error codes and HTTP status mapping
+**Copy to your public directory:**
+```bash
+cp node_modules/med-scribe-alliance-ts-sdk/dist/worker.bundle.js public/
+```
+
+**Or use a CDN blob URL (avoids same-origin restrictions):**
+```ts
+import { createWorkerBlobUrl } from 'med-scribe-alliance-ts-sdk';
+
+const workerUrl = await createWorkerBlobUrl();
+const client = new ScribeClient({
+  baseUrl: '...',
+  workerScriptUrl: workerUrl,
+});
+```
+
+**Or set a global override:**
+```ts
+window.__MEDSCRIBE_WORKER_URL__ = '/assets/worker.bundle.js';
+```
+
+If the SharedWorker fails to initialize, the SDK silently falls back to main-thread compression and upload.
+
+## Electron / IPC Mode
+
+For Electron apps where network requests must go through the main process:
+
+```ts
+import { ScribeClient, TransportMode } from 'med-scribe-alliance-ts-sdk';
+
+const client = new ScribeClient({
+  baseUrl: 'https://api.example.com',
+  mode: TransportMode.IPC,
+  ipcTransport: {
+    send: (request) => ipcRenderer.send('scribe-request', request),
+    onResponse: (handler) => ipcRenderer.on('scribe-response', (_, res) => handler(res)),
+  },
+});
+```
+
+IPC mode always uses main-thread compression (SharedWorker can't access the IPC bridge).
+
+## Two-Step Flow
+
+For apps that need to create the session separately from recording:
+
+```ts
+// Step 1: Create session
+const session = await client.createSession({
+  templates: ['soap'],
+  upload_type: 'chunked',
+  communication_protocol: 'http',
+});
+
+if (!session.success) return;
+
+// Step 2: Start recording with the existing session
+await client.startRecordingWithSession(session.data, {
+  uploadType: 'chunked',
+});
+```
+
+## Building from Source
+
+```bash
+npm install
+npm run build
+```
+
+Build output (`dist/`):
+
+| File | Description |
+|---|---|
+| `index.mjs` | Minified ESM bundle |
+| `index.d.ts` | Bundled type declarations |
+| `worker.bundle.js` | Self-contained IIFE SharedWorker |
 
 ## License
 
 MIT
-
-## Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request.
-

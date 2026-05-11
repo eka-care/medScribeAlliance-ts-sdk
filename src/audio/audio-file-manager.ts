@@ -1,248 +1,194 @@
-import { AUDIO_EXTENSION_TYPE_MAP, OUTPUT_FORMAT } from './constants';
-import { TAudioChunksInfo, UploadProgressCallback } from './types';
-import { compressAudioToMp3 } from './utils';
-import { uploadFileWithFormData } from '../utils/upload';
+/**
+ * AudioFileManager — tracks audio chunk metadata throughout a recording session.
+ *
+ * Responsibilities:
+ * - Track chunk metadata (fileName, timestamps, status)
+ * - Track total raw samples/frames received from VAD
+ * - Track total inserted samples/frames (committed to chunks)
+ * - Mark chunks as success/failure after upload
+ * - Provide lists of successful/failed uploads
+ *
+ * This class does NOT handle upload logic — that's delegated to WorkerManager.
+ * File naming follows the protocol spec: audio_{sequence_number}.{extension}
+ */
 
-type TUploadAudioChunkParams = {
-  audioFrames: Float32Array;
-  fileName: string;
-  chunkIndex: number;
-};
+import { AudioChunkInfo } from '../types';
+import { OUTPUT_FORMAT } from './constants';
 
 export class AudioFileManager {
-  public audioChunks: TAudioChunksInfo[] = [];
-  private uploadPromises: Promise<any>[] = [];
+  private chunks: AudioChunkInfo[] = [];
   private successfulUploads: string[] = [];
   private totalRawSamples: number = 0;
   private totalRawFrames: number = 0;
   private totalInsertedSamples: number = 0;
   private totalInsertedFrames: number = 0;
 
-  private sessionId: string = '';
-  private uploadUrl: string = '';
-  private uploadHeaders?: Record<string, string>;
-
-  // Callback for progress
-  private onUploadProgress?: UploadProgressCallback;
-
-  initialiseClassInstance() {
-    this.audioChunks = [];
-    this.uploadPromises = [];
-    this.successfulUploads = [];
-    this.totalInsertedFrames = 0;
-    this.totalInsertedSamples = 0;
-    this.totalRawSamples = 0;
-    this.totalRawFrames = 0;
+  /**
+   * Track raw samples received from VAD (before chunking).
+   */
+  incrementRawSamples(frame: Float32Array): void {
+    this.totalRawSamples += frame.length;
+    this.totalRawFrames += 1;
   }
 
-  constructor() {
-    this.initialiseClassInstance();
+  /**
+   * Track samples/frames committed to a chunk.
+   */
+  incrementInsertedSamples(samples: number, frames: number): void {
+    this.totalInsertedSamples += samples;
+    this.totalInsertedFrames += frames;
   }
 
-  setSessionInfo({
-    sessionId,
-    uploadUrl,
-    uploadHeaders,
-  }: {
-    sessionId: string;
-    uploadUrl: string;
-    uploadHeaders?: Record<string, string>;
-  }) {
-    this.sessionId = sessionId;
-    this.uploadUrl = uploadUrl;
-    this.uploadHeaders = uploadHeaders;
-  }
-
-  setUploadProgressCallback(callback: UploadProgressCallback) {
-    this.onUploadProgress = callback;
-  }
-
-  getRawSampleDetails(): {
-    totalRawSamples: number;
-    totalRawFrames: number;
-  } {
+  getRawSampleDetails(): { totalRawSamples: number; totalRawFrames: number } {
     return {
       totalRawSamples: this.totalRawSamples,
       totalRawFrames: this.totalRawFrames,
     };
   }
 
-  incrementTotalRawSamples(frames: Float32Array): void {
-    this.totalRawSamples += frames.length;
-    this.totalRawFrames += 1;
-  }
-
-  incrementInsertedSamples(samples: number, frames: number): void {
-    this.totalInsertedSamples += samples;
-    this.totalInsertedFrames += frames;
-  }
-
-  getInsertedSampleDetails(): {
-    totalInsertedSamples: number;
-    totalInsertedFrames: number;
-  } {
+  getInsertedSampleDetails(): { totalInsertedSamples: number; totalInsertedFrames: number } {
     return {
       totalInsertedSamples: this.totalInsertedSamples,
       totalInsertedFrames: this.totalInsertedFrames,
     };
   }
 
-  updateAudioInfo(audioChunks: TAudioChunksInfo): number {
-    this.audioChunks.push(audioChunks);
-    return this.audioChunks.length;
+  /**
+   * Generate the next chunk file name per protocol spec.
+   * Format: audio_{sequence_number}.{extension} (1-based index)
+   */
+  getNextFileName(): string {
+    const index = this.chunks.length + 1;
+    return `audio_${index}.${OUTPUT_FORMAT}`;
   }
 
-  async uploadAudio({ audioFrames, fileName, chunkIndex }: TUploadAudioChunkParams) {
-    console.log('upload audio chunk called for file:', fileName, ' at index:', chunkIndex);
-    // Compress and upload in main thread (SharedWorker complexity removed for MVP/Port)
-    await this.uploadAudioChunkInMain({ audioFrames, fileName, chunkIndex });
+  /**
+   * Add a new chunk to the tracking list.
+   * Returns the chunk index (zero-based).
+   */
+  addChunk(chunk: AudioChunkInfo): number {
+    this.chunks.push(chunk);
+    return this.chunks.length - 1;
   }
 
-  private async uploadAudioChunkInMain({
-    audioFrames,
-    fileName,
-    chunkIndex,
-  }: TUploadAudioChunkParams): Promise<{
-    success: boolean;
-    fileName: string;
-  }> {
-    if (!this.uploadUrl) {
-      console.error('Upload URL not set');
-      return { success: false, fileName };
-    }
-
-    const compressedAudioBuffer = compressAudioToMp3(audioFrames);
-
-    const audioBlob = new Blob(compressedAudioBuffer as BlobPart[], {
-      type: AUDIO_EXTENSION_TYPE_MAP[OUTPUT_FORMAT],
-    });
-
-    console.log('Uploading to URL:', this.uploadUrl, 'filename:', fileName);
-
-    const uploadPromise = uploadFileWithFormData(
-      this.uploadUrl,
-      fileName,
-      audioBlob,
-      this.uploadHeaders
-    ).then((response) => {
-      if (response.success) {
-        this.successfulUploads.push(fileName);
-
-        if (chunkIndex !== -1 && this.audioChunks[chunkIndex]) {
-          this.audioChunks[chunkIndex] = {
-            ...this.audioChunks[chunkIndex],
-            audioFrames: undefined,
-            fileBlob: undefined,
-            status: 'success',
-            response: response.success,
-          };
-        }
-
-        this.onUploadProgress?.([...this.successfulUploads], this.audioChunks.length);
-      } else {
-        if (chunkIndex !== -1 && this.audioChunks[chunkIndex]) {
-          this.audioChunks[chunkIndex] = {
-            ...this.audioChunks[chunkIndex],
-            fileBlob: audioBlob,
-            audioFrames: undefined,
-            status: 'failure',
-            response: response.error || 'Upload failed',
-          };
-        }
+  /**
+   * Mark a chunk as successfully uploaded.
+   */
+  markSuccess(chunkIndex: number, response?: string): void {
+    try {
+      if (chunkIndex < 0 || chunkIndex >= this.chunks.length) {
+        return;
       }
-      return response;
-    });
 
-    this.uploadPromises.push(uploadPromise);
+      const chunk = this.chunks[chunkIndex];
+      this.chunks[chunkIndex] = {
+        fileName: chunk.fileName,
+        timestamp: chunk.timestamp,
+        response,
+        status: 'success',
+      };
 
-    return {
-      success: true,
-      fileName,
-    };
+      if (!this.successfulUploads.includes(chunk.fileName)) {
+        this.successfulUploads.push(chunk.fileName);
+      }
+    } catch (error) {
+      console.error('[ScribeSDK] Error marking chunk success:', error);
+    }
   }
 
-  async waitForAllUploads(): Promise<void> {
-    await Promise.allSettled(this.uploadPromises);
+  /**
+   * Mark a chunk as failed upload. Stores the blob for potential retry.
+   */
+  markFailure(chunkIndex: number, fileBlob: Blob, errorMessage?: string): void {
+    try {
+      if (chunkIndex < 0 || chunkIndex >= this.chunks.length) {
+        return;
+      }
+
+      const chunk = this.chunks[chunkIndex];
+      this.chunks[chunkIndex] = {
+        fileName: chunk.fileName,
+        timestamp: chunk.timestamp,
+        response: errorMessage,
+        status: 'failure',
+        fileBlob,
+      };
+    } catch (error) {
+      console.error('[ScribeSDK] Error marking chunk failure:', error);
+    }
   }
 
+  /**
+   * Get all chunks.
+   */
+  getChunks(): AudioChunkInfo[] {
+    return this.chunks;
+  }
+
+  /**
+   * Get the total number of chunks.
+   */
+  getChunkCount(): number {
+    return this.chunks.length;
+  }
+
+  /**
+   * Get list of successfully uploaded file names.
+   */
   getSuccessfulUploads(): string[] {
     return [...this.successfulUploads];
   }
 
+  /**
+   * Get list of file names that failed to upload.
+   */
   getFailedUploads(): string[] {
-    const failedUploads: string[] = [];
-    this.audioChunks.forEach((chunk) => {
-      if (chunk.status != 'success') {
-        failedUploads.push(chunk.fileName);
+    return this.chunks
+      .filter((chunk) => chunk.status === 'failure')
+      .map((chunk) => chunk.fileName);
+  }
+
+  /**
+   * Get chunks that are in failure state (have blobs for retry).
+   */
+  getFailedChunksWithBlobs(): Array<{ chunkIndex: number; fileName: string; fileBlob: Blob }> {
+    const failed: Array<{ chunkIndex: number; fileName: string; fileBlob: Blob }> = [];
+    this.chunks.forEach((chunk, index) => {
+      if (chunk.status === 'failure' && chunk.fileBlob) {
+        failed.push({ chunkIndex: index, fileName: chunk.fileName, fileBlob: chunk.fileBlob });
       }
     });
-    return failedUploads;
+    return failed;
   }
 
-  getTotalAudioChunks(): TAudioChunksInfo[] {
-    return this.audioChunks;
-  }
-
-  async retryFailedUploads(): Promise<string[]> {
-    const failedFiles = this.getFailedUploads();
-    if (failedFiles.length === 0) {
-      return [];
+  /**
+   * Mark all chunks still in 'pending' as failed.
+   * Called after waitForAllUploads() returns (including timeout)
+   * to ensure no chunk is silently lost.
+   */
+  markPendingAsFailed(): void {
+    for (let i = 0; i < this.chunks.length; i++) {
+      if (this.chunks[i].status === 'pending') {
+        this.chunks[i] = {
+          fileName: this.chunks[i].fileName,
+          timestamp: this.chunks[i].timestamp,
+          response: 'Upload did not complete (timed out or worker unresponsive)',
+          status: 'failure',
+          fileBlob: new Blob(),
+        };
+      }
     }
-
-    this.uploadPromises = []; // Reset for retry batch
-
-    this.audioChunks.forEach((chunk, index) => {
-      const { fileName, fileBlob, status, audioFrames } = chunk;
-
-      if (status != 'success') {
-        let failedFileBlob: Blob | undefined;
-
-        if (status === 'failure') {
-          failedFileBlob = fileBlob;
-        } else if (status === 'pending' && audioFrames) {
-          const compressedAudioBuffer = compressAudioToMp3(audioFrames);
-          failedFileBlob = new Blob(compressedAudioBuffer as BlobPart[], {
-            type: AUDIO_EXTENSION_TYPE_MAP[OUTPUT_FORMAT],
-          });
-        }
-
-        if (failedFileBlob) {
-          const uploadPromise = uploadFileWithFormData(
-            this.uploadUrl,
-            fileName,
-            failedFileBlob,
-            this.uploadHeaders
-          ).then((response) => {
-            if (response.success) {
-              this.successfulUploads.push(fileName);
-              this.audioChunks[index] = {
-                ...this.audioChunks[index],
-                audioFrames: undefined,
-                fileBlob: undefined,
-                status: 'success',
-                response: response.success,
-              };
-              this.onUploadProgress?.([...this.successfulUploads], this.audioChunks.length);
-            }
-            return response;
-          });
-
-          this.uploadPromises.push(uploadPromise);
-        }
-      }
-    });
-
-    await this.waitForAllUploads();
-
-    return this.getFailedUploads();
   }
 
-  resetFileManagerInstance(): void {
-    // Promises can't be cancelled but we ignore results
-    this.uploadPromises.forEach((p) => p.catch(() => {}));
-    this.initialiseClassInstance();
-    this.sessionId = '';
-    this.uploadUrl = '';
-    this.uploadHeaders = undefined;
+  /**
+   * Full reset — clears all state.
+   */
+  resetInstance(): void {
+    this.chunks = [];
+    this.successfulUploads = [];
+    this.totalRawSamples = 0;
+    this.totalRawFrames = 0;
+    this.totalInsertedSamples = 0;
+    this.totalInsertedFrames = 0;
   }
 }

@@ -1,133 +1,125 @@
-import { SAMPLING_RATE } from './constants';
+/**
+ * AudioBufferManager — accumulates audio frames into a growable Float32Array buffer.
+ *
+ * Responsibilities:
+ * - Append incoming audio frames from VAD
+ * - Track sample count, frame count, and duration
+ * - Provide the accumulated audio data for chunk processing
+ * - Calculate chunk timestamps based on raw sample position
+ * - Reset buffer state after a chunk is clipped (without re-allocating)
+ */
 
 export class AudioBufferManager {
-  private buffer!: Float32Array;
+  private buffer: Float32Array;
   private currentSampleLength: number = 0;
   private currentFrameLength: number = 0;
-  private samplingRate: number = 0;
-  private incrementalAllocationSize: number = 0;
+  private samplingRate: number;
+  private incrementalAllocationSize: number;
 
   /**
-   * Class that creates an audio buffer to store frame data
    * @param samplingRate - The sampling rate of the audio in Hz
    * @param allocationTimeInSeconds - The size of each incremental allocation in seconds
    */
   constructor(samplingRate: number, allocationTimeInSeconds: number) {
     this.samplingRate = samplingRate;
-
-    // Calculate the size of each incremental allocation in samples
     this.incrementalAllocationSize = Math.floor(samplingRate * allocationTimeInSeconds);
-
-    // Initialize buffer with the first allocation block
     this.buffer = new Float32Array(this.incrementalAllocationSize);
-    this.currentSampleLength = 0;
   }
 
   /**
-   * Append audio frame to the buffer
-   * @param audioFrame - Float32Array containing audio samples to append
-   * @returns The current position in the buffer after appending
+   * Append an audio frame to the buffer.
+   * Expands the buffer if needed.
    */
-  public append(audioFrame: Float32Array): number {
-    // Check if we need to allocate more memory
-    if (this.currentSampleLength + audioFrame.length > this.buffer.length) {
-      this.expandBuffer();
+  append(audioFrame: Float32Array): number {
+    try {
+      if (this.currentSampleLength + audioFrame.length > this.buffer.length) {
+        this.expandBuffer();
+      }
+
+      this.buffer.set(audioFrame, this.currentSampleLength);
+      this.currentSampleLength += audioFrame.length;
+      this.currentFrameLength += 1;
+
+      return this.currentSampleLength;
+    } catch (error) {
+      console.error('[ScribeSDK] Error appending audio frame:', error);
+      return this.currentSampleLength;
     }
-
-    // Copy the new frame into the buffer
-    this.buffer.set(audioFrame, this.currentSampleLength);
-    this.currentSampleLength += audioFrame.length; // for 1 frame increase by 1024
-    this.currentFrameLength += 1; // for 1 frame increase by 1
-
-    return this.currentSampleLength;
   }
 
   /**
-   * Get the current audio data as a Float32Array
+   * Get the current audio data as a new Float32Array (copy, not reference).
    */
-  public getAudioData(): Float32Array {
+  getAudioData(): Float32Array {
     return this.buffer.slice(0, this.currentSampleLength);
   }
 
-  /**
-   * Get the current length of audio data in samples
-   * @returns The number of samples currently in the buffer
-   */
-  public getCurrentSampleLength(): number {
+  getCurrentSampleLength(): number {
     return this.currentSampleLength;
   }
 
-  /**
-   * Get the current length of audio data in samples
-   * @returns The number of samples currently in the buffer
-   */
-  public getCurrentFrameLength(): number {
+  getCurrentFrameLength(): number {
     return this.currentFrameLength;
   }
 
   /**
-   * Get the current length of audio data in seconds
-   * @returns The duration of audio currently in the buffer in seconds
+   * Get the current duration of buffered audio in seconds.
    */
-  public getDurationInSeconds(): number {
+  getDurationInSeconds(): number {
     return this.currentSampleLength / this.samplingRate;
   }
 
   /**
-   * Expand the buffer by allocating a new block of memory
-   * @private
+   * Calculate timestamps for the current chunk relative to the overall recording.
+   *
+   * @param totalRawSamples - Total raw samples received since recording started
+   * @returns start and end timestamps formatted as MM:SS.ffffff
    */
-  private expandBuffer(): void {
-    const newSize = this.buffer.length + this.incrementalAllocationSize;
-    const newBuffer = new Float32Array(newSize);
+  calculateChunkTimestamps(totalRawSamples: number): { start: string; end: string } {
+    try {
+      const chunkDuration = this.getDurationInSeconds();
+      const endSeconds = totalRawSamples / this.samplingRate;
+      const startSeconds = endSeconds - chunkDuration;
 
-    // Copy existing data to the new buffer
-    newBuffer.set(this.buffer, 0);
-
-    // Replace old buffer with new one
-    this.buffer = newBuffer;
+      return {
+        start: this.formatTimestamp(Math.max(0, startSeconds)),
+        end: this.formatTimestamp(endSeconds),
+      };
+    } catch (error) {
+      console.error('[ScribeSDK] Error calculating chunk timestamps:', error);
+      return { start: '00:00.000000', end: '00:00.000000' };
+    }
   }
 
   /**
-   * Calculate timestamps for an audio chunk
+   * Reset sample/frame counters without re-allocating the buffer.
+   * Called after a chunk is clipped and sent for processing.
    */
-  calculateChunkTimestamps(rawSamplesLength: number): {
-    start: string;
-    end: string;
-  } {
-    const start = rawSamplesLength / SAMPLING_RATE - this.getDurationInSeconds();
-    const end = start + this.getDurationInSeconds();
-
-    // Format start time as MM:SS.ffffff
-    const startMinutes = Math.floor(start / 60)
-      .toString()
-      .padStart(2, '0');
-    const startSeconds = (start % 60).toFixed(6).toString().padStart(2, '0');
-    const formattedStartTime = `${startMinutes}:${startSeconds}`;
-
-    // Format end time as MM:SS.ffffff
-    const endMinutes = Math.floor(end / 60)
-      .toString()
-      .padStart(2, '0');
-    const endSeconds = (end % 60).toFixed(6).toString().padStart(2, '0');
-    const formattedEndTime = `${endMinutes}:${endSeconds}`;
-
-    // Return timestamp object
-    return {
-      start: formattedStartTime,
-      end: formattedEndTime,
-    };
-  }
-
-  public resetBufferState() {
-    // Zero out the existing buffer instead of allocating new memory
+  resetBufferState(): void {
     this.currentSampleLength = 0;
     this.currentFrameLength = 0;
   }
 
-  public resetBufferManagerInstance() {
+  /**
+   * Full reset — re-allocates buffer memory.
+   * Called when recording is completely stopped/reset.
+   */
+  resetInstance(): void {
     this.buffer = new Float32Array(this.incrementalAllocationSize);
     this.currentSampleLength = 0;
     this.currentFrameLength = 0;
+  }
+
+  private expandBuffer(): void {
+    const newSize = this.buffer.length + this.incrementalAllocationSize;
+    const newBuffer = new Float32Array(newSize);
+    newBuffer.set(this.buffer, 0);
+    this.buffer = newBuffer;
+  }
+
+  private formatTimestamp(seconds: number): string {
+    const minutes = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const secs = (seconds % 60).toFixed(6).padStart(9, '0');
+    return `${minutes}:${secs}`;
   }
 }

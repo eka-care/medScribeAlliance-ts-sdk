@@ -1,433 +1,526 @@
 /**
- * Scribe SDK Client
- * Main entry point for the Scribe EMR Protocol SDK
+ * ScribeClient — thin facade for the MedScribe Alliance TS SDK.
+ *
+ * All public async methods return SDKResult<T> — expected errors
+ * (API failures, auth, validation, mic denied) are returned, not thrown.
+ * Only programmer errors (bad config at construction) throw.
+ *
+ * This class does NOT contain business logic — it delegates to:
+ * - DiscoveryManager  (discovery + resolved config)
+ * - SessionManager    (session CRUD + polling)
+ * - RecordingManager  (recorder lifecycle + upload orchestration)
+ * - CallbackRegistry  (typed event dispatch)
+ * - Validator         (schema + discovery-driven validation)
+ * - ITransport        (HTTP or IPC, decided at construction)
  */
 
-import { DiscoveryAPI } from './api/discovery';
-import { SessionAPI } from './api/session';
-import { HttpClient } from './api/base';
-import { ValidationError, ScribeError } from './utils/errors';
-import {
+import type {
   ScribeSDKConfig,
   RecordingOptions,
-  DiscoveryDocument,
   CreateSessionResponse,
   GetSessionStatusResponse,
-  EndSessionResponse,
-  SDKEvent,
-  SDKEventType,
+  PollOptions,
+  DiscoveryDocument,
+  ResolvedConfig,
+  CallbackMap,
+  CallbackName,
+  CreateSessionRequest,
+  SDKResult,
+  PatchSessionRequest,
+  PatchSessionResponse,
+  ProcessTemplateResponse,
 } from './types';
-import { UploadType } from './constants';
-import { IRecorder, ChunkedRecorder, SingleRecorder } from './audio';
-import { EventEmitter } from './utils/events';
+import { TransportMode } from './constants';
+import { ScribeError, ValidationError } from './utils/errors';
+import { CallbackRegistry } from './callbacks/callback-registry';
+import { Validator } from './validation/validator';
+import { HttpTransport } from './transport/http-transport';
+import { IpcTransport } from './transport/ipc-transport';
+import type { ITransport } from './types/transport';
+import { DiscoveryManager } from './discovery/discovery-manager';
+import { SessionManager } from './session/session-manager';
+import { RecordingManager } from './recording/recording-manager';
+import type { StopRecordingResult, RetryUploadResult } from './types/recording';
 
 export class ScribeClient {
-  private static instance: ScribeClient | null = null;
-
   private config: ScribeSDKConfig;
-  private httpClient: HttpClient;
-  private discoveryAPI: DiscoveryAPI;
-  private sessionAPI: SessionAPI;
-  private eventEmitter: EventEmitter;
+  private transport: ITransport;
+  private callbackRegistry: CallbackRegistry;
+  private validator: Validator;
+  private discoveryManager: DiscoveryManager;
+  private sessionManager: SessionManager;
+  private recordingManager: RecordingManager;
 
-  private discoveryDocument: DiscoveryDocument | null = null;
-  private currentSession: CreateSessionResponse | null = null;
   private isInitialized: boolean = false;
-
-  /**
-   * Get the singleton instance of ScribeClient
-   * Creates a new instance if one doesn't exist
-   */
-  static getInstance(config: ScribeSDKConfig): ScribeClient {
-    if (!ScribeClient.instance) {
-      ScribeClient.instance = new ScribeClient(config);
-    }
-
-    return ScribeClient.instance;
-  }
-
-  /**
-   * Reset the singleton instance
-   * Useful for testing or when switching environments
-   */
-  static resetInstance(): void {
-    if (ScribeClient.instance) {
-      ScribeClient.instance.reset().catch(() => {});
-      ScribeClient.instance = null;
-    }
-  }
 
   constructor(config: ScribeSDKConfig) {
     this.validateConfig(config);
+
     this.config = {
       debug: false,
       autoDiscovery: true,
+      mode: TransportMode.DIRECT,
       ...config,
     };
 
-    this.httpClient = new HttpClient(
-      this.config.apiKey,
-      this.config.accessToken,
-      this.config.debug
+    // 1. Create shared infrastructure (before transport — transport needs onUnauthorized callback)
+    this.callbackRegistry = new CallbackRegistry();
+    this.validator = new Validator();
+
+    // 2. Create transport based on mode
+    this.transport = this.createTransport();
+
+    // 3. Create managers
+    this.discoveryManager = new DiscoveryManager(this.transport, this.validator, this.config.debug);
+
+    this.sessionManager = new SessionManager(this.transport, this.validator, this.config.debug);
+
+    this.recordingManager = new RecordingManager(
+      this.callbackRegistry,
+      this.sessionManager,
+      this.discoveryManager,
+      this.transport,
+      {
+        debug: this.config.debug,
+        workerConfig: this.resolveWorkerConfig(),
+      }
     );
-    this.discoveryAPI = new DiscoveryAPI(this.httpClient);
-    this.sessionAPI = new SessionAPI(
-      this.httpClient,
-      this.config.baseUrl || '' // Will be set after discovery
-    );
-    this.eventEmitter = new EventEmitter();
   }
 
+  // --- Lifecycle ---
+
   /**
-   * Initialize the SDK
-   * Performs service discovery if autoDiscovery is enabled
+   * Initialize the SDK — fetches the discovery document if autoDiscovery is enabled.
+   * Must be called before starting a recording.
    */
-  async init(): Promise<void> {
+  async init(): Promise<SDKResult<void>> {
     if (this.isInitialized) {
-      if (this.config.debug) {
-        console.log('[ScribeSDK] Already initialized');
+      return { success: true, data: undefined };
+    }
+
+    return this.wrapResult(async () => {
+      if (this.config.autoDiscovery !== false) {
+        await this.discoveryManager.fetchDiscovery(this.config.baseUrl);
       }
-      return;
-    }
-
-    if (!this.config.baseUrl) {
-      throw new ValidationError('baseUrl is required for initialization');
-    }
-
-    if (this.config.autoDiscovery) {
-      try {
-        this.discoveryDocument = await this.discoveryAPI.getDiscovery(this.config.baseUrl);
-
-        // Update base URL from discovery
-        if (this.discoveryDocument.endpoints.base_url) {
-          this.sessionAPI.setBaseUrl(this.discoveryDocument.endpoints.base_url);
-        }
-
-        this.emitEvent({
-          type: 'discovery:complete',
-          data: this.discoveryDocument,
-        });
-
-        if (this.config.debug) {
-          console.log('[ScribeSDK] Discovery complete:', this.discoveryDocument);
-        }
-      } catch (error) {
-        this.emitEvent({
-          type: 'error',
-          error: error instanceof Error ? error : new Error('Discovery failed'),
-        });
-        throw error;
-      }
-    } else {
-      // If auto-discovery is disabled, use the provided baseUrl
-      this.sessionAPI.setBaseUrl(this.config.baseUrl);
-    }
-
-    this.isInitialized = true;
-  }
-
-  // ... imports
-  private recorder: IRecorder | null = null;
-
-  // ... (rest of class)
-
-  /**
-   * Start a recording session
-   * Creates a new session and starts audio recording
-   */
-  async startRecording(options: RecordingOptions): Promise<CreateSessionResponse> {
-    if (!this.isInitialized) {
-      await this.init();
-    }
-
-    // Check microphone permission
-    const navigatorPermissionResponse = await navigator.permissions.query({
-      name: 'microphone' as PermissionName,
+      this.isInitialized = true;
     });
+  }
 
-    if (navigatorPermissionResponse.state !== 'granted') {
-      throw new ValidationError('Microphone access is required to start recording.');
+  // --- Recording ---
+
+  /**
+   * Start a recording session.
+   * Calls init() automatically if not already initialized.
+   */
+  async startRecording(options: RecordingOptions): Promise<SDKResult<CreateSessionResponse>> {
+    if (!this.isInitialized) {
+      const initResult = await this.init();
+      if (!initResult.success) {
+        return initResult;
+      }
     }
 
-    try {
-      // Create session request
-      const request = {
-        templates: options.templates,
-        model: options.model,
-        language_hint: options.languageHint,
-        transcript_language: options.transcriptLanguage,
-        upload_type: options.uploadType || UploadType.CHUNKED,
-        communication_protocol: options.communicationProtocol || 'http',
-        additional_data: options.additionalData,
-      };
+    const baseUrl = this.getEffectiveBaseUrl();
 
-      // Create the session
-      this.currentSession = await this.sessionAPI.createSession(request);
-
-      this.emitEvent({
-        type: 'session:created',
-        data: this.currentSession,
-      });
-
-      if (this.config.debug) {
-        console.log('[ScribeSDK] Session created:', this.currentSession);
+    return this.wrapResult(() => {
+      // Validate recording options against discovery capabilities if available
+      try {
+        const config = this.discoveryManager.getResolvedConfig();
+        this.validator.validateAgainstDiscovery(options, config);
+      } catch (e) {
+        if (e instanceof ValidationError) throw e;
+        // Discovery not available — skip validation, let server validate
       }
 
-      // Initialize Recorder
-      if (options.uploadType === UploadType.SINGLE) {
-        this.recorder = new SingleRecorder(this.eventEmitter);
-      } else {
-        // Default to Chunked
-        this.recorder = new ChunkedRecorder(this.eventEmitter);
+      return this.recordingManager.start(baseUrl, options, this.config.accessToken);
+    });
+  }
+
+  // TODO: getSessionDetails will return create session response?
+  /**
+   * Start recording for an already-created session.
+   * Use this when the session was created via createSession() and you want
+   * to attach a recorder to it.
+   *
+   * @param session - The session response from createSession()
+   * @param options - Upload type ('chunked' | 'single') and optional deviceId
+   */
+  async startRecordingWithSession(
+    session: CreateSessionResponse,
+    options?: { uploadType?: string; deviceId?: string }
+  ): Promise<SDKResult<void>> {
+    if (!this.isInitialized) {
+      const initResult = await this.init();
+      if (!initResult.success) {
+        return initResult;
       }
-
-      this.recorder.initialize(this.currentSession, {
-        accessToken: this.config.accessToken,
-      });
-
-      // Start recording
-      // We assume options might have deviceId, or we use default
-      // If RecordingOptions doesn't have deviceId, we'll need to update the type or cast
-      await this.recorder.start((options as any).deviceId);
-
-      return this.currentSession;
-    } catch (error) {
-      this.emitEvent({
-        type: 'error',
-        error: error instanceof Error ? error : new Error('Failed to start recording'),
-      });
-      throw error;
     }
+
+    const baseUrl = this.getEffectiveBaseUrl();
+
+    return this.wrapResult(() =>
+      this.recordingManager.startWithExistingSession(
+        baseUrl,
+        session,
+        options,
+        this.config.accessToken
+      )
+    );
   }
 
   /**
-   * Pause the current recording
-   * Audio capture is temporarily suspended but session remains active
+   * Pause the active recording.
    */
   pauseRecording(): void {
-    if (!this.recorder) {
-      throw new ValidationError('No active recording to pause');
-    }
-
-    this.recorder.pause();
-
-    this.emitEvent({
-      type: 'recording:paused',
-    });
-
-    if (this.config.debug) {
-      console.log('[ScribeSDK] Recording paused');
-    }
+    this.recordingManager.pause();
   }
 
   /**
-   * Resume a paused recording
+   * Resume a paused recording.
    */
   resumeRecording(): void {
-    if (!this.recorder) {
-      throw new ValidationError('No active recording to resume');
-    }
-
-    this.recorder.resume();
-
-    this.emitEvent({
-      type: 'recording:resumed',
-    });
-
-    if (this.config.debug) {
-      console.log('[ScribeSDK] Recording resumed');
-    }
+    this.recordingManager.resume();
   }
 
   /**
-   * Check if recording is currently paused
+   * End the active recording — stops recorder, waits for uploads, ends session.
+   */
+  async endRecording(): Promise<SDKResult<StopRecordingResult>> {
+    return this.wrapResult(() => this.recordingManager.stop());
+  }
+
+  /**
+   * Retry uploading audio files that failed during the last recording.
+   * Only available after endRecording() returned failed uploads.
+   * Cleared on reset() or next startRecording().
+   */
+  async retryFailedUploads(): Promise<SDKResult<RetryUploadResult>> {
+    return this.wrapResult(() => this.recordingManager.retryFailedUploads());
+  }
+
+  /**
+   * Check if there are failed uploads from the last recording that can be retried.
+   */
+  hasFailedUploads(): boolean {
+    return this.recordingManager.hasFailedUploads();
+  }
+
+  /**
+   * Check if a recording is currently active.
+   */
+  isRecording(): boolean {
+    return this.recordingManager.isRecording();
+  }
+
+  /**
+   * Check if the active recording is paused.
    */
   isRecordingPaused(): boolean {
-    return this.recorder?.isPaused() ?? false;
+    return this.recordingManager.isPaused();
   }
 
+  // --- Session ---
+
   /**
-   * End the current recording session
-   * Stops audio recording, uploads remaining data, and triggers processing
+   * Create a session directly (without starting a recording).
    */
-  async endRecording(): Promise<EndSessionResponse> {
-    if (!this.currentSession) {
-      throw new ValidationError('No active session to end');
+  async createSession(
+    sessionRequest: CreateSessionRequest
+  ): Promise<SDKResult<CreateSessionResponse>> {
+    const baseUrl = this.getEffectiveBaseUrl();
+    return this.wrapResult(() => this.sessionManager.createSession(baseUrl, sessionRequest));
+  }
+
+  /**
+   * Get the status of a session.
+   * Uses the current active session if no sessionId is provided.
+   *
+   * Pass `poll` options to keep checking until the session reaches a
+   * terminal state (completed, partial, failed, expired) or times out.
+   *
+   * Pass `templateId` to filter status for a specific template.
+   */
+  async getSessionStatus(
+    sessionId?: string,
+    options?: { poll?: PollOptions; templateId?: string }
+  ): Promise<SDKResult<GetSessionStatusResponse>> {
+    const baseUrl = this.getEffectiveBaseUrl();
+    if (options?.poll) {
+      return this.wrapResult(() =>
+        this.sessionManager.pollForCompletion(baseUrl, sessionId, options.poll)
+      );
+    }
+    return this.wrapResult(() =>
+      this.sessionManager.getSessionStatus(baseUrl, sessionId, options?.templateId)
+    );
+  }
+
+  /**
+   * Get the current active session, if any.
+   */
+  getCurrentSession(): CreateSessionResponse | null {
+    return this.recordingManager.getActiveSession() ?? this.sessionManager.getCurrentSession();
+  }
+
+  /**
+   * Patch/update a session (e.g., update user_status or processing_status).
+   * Uses the current active session if no sessionId is provided.
+   */
+  async updateSession(
+    request: PatchSessionRequest,
+    sessionId?: string
+  ): Promise<SDKResult<PatchSessionResponse>> {
+    const baseUrl = this.getEffectiveBaseUrl();
+    return this.wrapResult(() => this.sessionManager.patchSession(baseUrl, request, sessionId));
+  }
+
+  /**
+   * Trigger processing for a specific template in a session.
+   * Uses the current active session if no sessionId is provided.
+   */
+  async processTemplate(
+    templateId: string,
+    sessionId?: string
+  ): Promise<SDKResult<ProcessTemplateResponse>> {
+    const baseUrl = this.getEffectiveBaseUrl();
+    return this.wrapResult(() =>
+      this.sessionManager.processTemplate(baseUrl, templateId, sessionId)
+    );
+  }
+
+  /**
+   * Cancel a session by setting both user_status and processing_status to 'cancelled'.
+   * Uses the current active session if no sessionId is provided.
+   */
+  async cancelSession(sessionId?: string): Promise<SDKResult<PatchSessionResponse>> {
+    // Capture session ID before cleanup clears it
+    const resolvedSessionId =
+      sessionId ??
+      this.recordingManager.getActiveSession()?.session_id ??
+      this.sessionManager.getCurrentSession()?.session_id;
+
+    // Stop recorder immediately without calling endSession (avoids triggering server processing)
+    if (this.recordingManager.isRecording()) {
+      this.recordingManager.forceStop();
     }
 
+    // Clean up remaining state (retry context, etc.)
+    this.recordingManager.reset();
+    this.sessionManager.clearCurrentSession();
+
+    return this.updateSession(
+      { user_status: 'cancelled', processing_status: 'cancelled' },
+      resolvedSessionId
+    );
+  }
+
+  // --- Discovery ---
+
+  /**
+   * Get the resolved discovery config.
+   * Returns error if discovery hasn't been fetched yet.
+   */
+  getDiscoveryConfig(): SDKResult<ResolvedConfig> {
     try {
-      // Stop recording and upload
-      let audioFilesSent = 0;
-      if (this.recorder) {
-        const { failedUploads, totalFiles } = await this.recorder.stop();
-        if (failedUploads.length > 0) {
-          console.warn('Some audio files failed to upload:', failedUploads);
-          throw new ScribeError(
-            `Failed to upload audio recordings: ${failedUploads.join(', ')}`,
-            'upload_failed'
-          );
-        }
-        audioFilesSent = totalFiles || 0;
-        this.recorder = null;
-      }
-
-      const response = await this.sessionAPI.endSession(
-        this.currentSession.session_id,
-        audioFilesSent
-      );
-
-      this.emitEvent({
-        type: 'session:ended',
-        data: response,
-      });
-
-      if (this.config.debug) {
-        console.log('[ScribeSDK] Session ended:', response);
-      }
-
-      return response;
+      return { success: true, data: this.discoveryManager.getResolvedConfig() };
     } catch (error) {
-      this.emitEvent({
-        type: 'error',
-        error: error instanceof Error ? error : new Error('Failed to end recording'),
-      });
-      throw error;
+      return { success: false, error: this.toScribeError(error) };
     }
   }
 
   /**
-   * Reset the SDK (clear session, recorder, and discovery cache)
+   * Get the raw discovery document.
+   */
+  getDiscoveryDocument(): DiscoveryDocument | null {
+    return this.discoveryManager.getDiscoveryDocument();
+  }
+
+  /**
+   * Force refresh the discovery document.
+   */
+  async refreshDiscovery(): Promise<SDKResult<ResolvedConfig>> {
+    return this.wrapResult(() => this.discoveryManager.fetchDiscovery(this.config.baseUrl, true));
+  }
+
+  // --- Callbacks ---
+
+  /**
+   * Register a callback handler.
+   *
+   * @example
+   * client.registerCallback('onAudioEvent', (event) => {
+   *   if (event.type === 'user_speech') console.log('Speaking:', event.data.isSpeaking);
+   * });
+   */
+  registerCallback<K extends CallbackName>(name: K, handler: CallbackMap[K]): void {
+    this.callbackRegistry.register(name, handler);
+  }
+
+  /**
+   * Remove a previously registered callback handler.
+   */
+  removeCallback<K extends CallbackName>(name: K, handler: CallbackMap[K]): void {
+    this.callbackRegistry.remove(name, handler);
+  }
+
+  // --- Auth ---
+
+  /**
+   * Update the Bearer token. Propagates to transport, active recorder, and worker.
+   */
+  setAccessToken(token: string): void {
+    this.config.accessToken = token;
+    this.transport.setAuthToken(token);
+    this.recordingManager.updateAuthToken(token);
+  }
+
+  // --- Reset ---
+
+  /**
+   * Full reset — stops recording if active, clears all caches and state.
    */
   async reset(): Promise<void> {
-    if (this.recorder) {
-      await this.recorder.stop().catch(() => {});
-      this.recorder = null;
+    try {
+      if (this.recordingManager.isRecording()) {
+        await this.recordingManager.stop();
+      }
+    } catch {
+      // Best-effort stop
     }
-    this.currentSession = null;
-    this.discoveryAPI.clearCache();
-    this.discoveryDocument = null;
+
+    this.recordingManager.reset();
+    this.sessionManager.clearCurrentSession();
+    this.discoveryManager.clearCache();
+    this.callbackRegistry.removeAll();
+    this.transport.destroy?.();
     this.isInitialized = false;
   }
 
-  private emitEvent(event: SDKEvent): void {
-    this.eventEmitter.emit(event);
+  // --- Private ---
+
+  /**
+   * Wraps an async operation into SDKResult.
+   * Internal layers throw — this converts to { success, data/error }.
+   */
+  private async wrapResult<T>(fn: () => Promise<T>): Promise<SDKResult<T>> {
+    try {
+      const data = await fn();
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: this.toScribeError(error) };
+    }
   }
 
   /**
-   * Get the output status of a session
-   *
-   * @param sessionId - Optional session ID. Uses current session if not provided.
+   * Ensures any error is a ScribeError instance.
    */
-  async getOutputStatus(sessionId?: string): Promise<GetSessionStatusResponse> {
-    const targetSessionId = sessionId || this.currentSession?.session_id;
-
-    if (!targetSessionId) {
-      throw new ValidationError('No session ID provided and no active session');
+  private toScribeError(error: unknown): ScribeError {
+    if (error instanceof ScribeError) {
+      return error;
     }
+    return new ScribeError(error instanceof Error ? error.message : 'Unknown error');
+  }
 
-    try {
-      const status = await this.sessionAPI.getSessionStatus(targetSessionId);
-
-      this.emitEvent({
-        type: 'session:status_update',
-        data: status,
-      });
-
-      if (this.config.debug) {
-        console.log('[ScribeSDK] Session status:', status);
+  /**
+   * Create the transport layer (HTTP or IPC) with 401 auto-retry wiring.
+   *
+   * How 401 auto-retry works:
+   * 1. Transport gets a 401 response → calls onUnauthorized()
+   * 2. onUnauthorized dispatches the 'onTokenRequired' callback to the consumer
+   * 3. Consumer calls resolve(newToken) → token is propagated via setAccessToken()
+   * 4. Promise resolves with the new token → transport retries the request once
+   *
+   * Deduplication: Transport holds a single tokenRefreshPromise — if multiple
+   * requests get 401 concurrently, they all await the same promise, so only
+   * ONE onTokenRequired callback fires regardless of how many requests failed.
+   *
+   * Timeout: If no handler is registered or the consumer never calls resolve(),
+   * the promise resolves with undefined after 10s → transport skips retry.
+   */
+  private createTransport(): ITransport {
+    const onUnauthorized = (): Promise<string | undefined> => {
+      // No handler registered — skip token refresh, transport will throw AuthenticationError
+      if (!this.callbackRegistry.hasHandlers('onTokenRequired')) {
+        return Promise.resolve(undefined);
       }
 
-      return status;
-    } catch (error) {
-      this.emitEvent({
-        type: 'error',
-        error: error instanceof Error ? error : new Error('Failed to get output status'),
-      });
-      throw error;
-    }
-  }
+      return new Promise<string | undefined>((resolve) => {
+        let settled = false;
 
-  /**
-   * Poll for session completion
-   * Continuously checks status until processing is complete
-   *
-   * @param sessionId - Optional session ID. Uses current session if not provided.
-   * @param options - Polling configuration
-   */
-  async pollForCompletion(
-    sessionId?: string,
-    options: {
-      maxAttempts?: number;
-      intervalMs?: number;
-      onProgress?: (status: GetSessionStatusResponse) => void;
-    } = {}
-  ): Promise<GetSessionStatusResponse> {
-    const targetSessionId = sessionId || this.currentSession?.session_id;
+        // Safety timeout — prevent hanging if consumer never calls resolve()
+        const timeout = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            resolve(undefined);
+          }
+        }, 10_000);
 
-    if (!targetSessionId) {
-      throw new ValidationError('No session ID provided and no active session');
-    }
-
-    return this.sessionAPI.pollSessionStatus(targetSessionId, {
-      ...options,
-      onProgress: (status) => {
-        this.emitEvent({
-          type: 'session:status_update',
-          data: status,
+        // Dispatch to consumer — they call resolve(newToken) when ready
+        this.callbackRegistry.dispatch('onTokenRequired', {
+          resolve: (newToken: string) => {
+            if (settled) return; // Timeout already fired — ignore late resolve
+            settled = true;
+            clearTimeout(timeout);
+            this.setAccessToken(newToken); // Propagate to transport + recorder + worker
+            resolve(newToken);
+          },
         });
-        if (options.onProgress) {
-          options.onProgress(status);
-        }
-      },
+      });
+    };
+
+    if (this.config.mode === TransportMode.IPC) {
+      if (!this.config.ipcTransport) {
+        throw new ValidationError('ipcTransport (IpcBridge) is required when mode is "ipc"');
+      }
+      return new IpcTransport({
+        bridge: this.config.ipcTransport,
+        accessToken: this.config.accessToken,
+        debug: this.config.debug,
+        onUnauthorized,
+      });
+    }
+
+    return new HttpTransport({
+      accessToken: this.config.accessToken,
+      debug: this.config.debug,
+      onUnauthorized,
     });
   }
 
-  /**
-   * Get the current session information
-   */
-  getCurrentSession(): CreateSessionResponse | null {
-    return this.currentSession;
+  private resolveWorkerConfig() {
+    const useWorker = this.config.useWorker ?? 'auto';
+
+    // IPC mode should never use SharedWorker (worker can't access IPC bridge)
+    if (this.config.mode === TransportMode.IPC) {
+      return { forceMainThread: true };
+    }
+
+    if (useWorker === false) {
+      return { forceMainThread: true };
+    }
+
+    // 'auto' or true — let WorkerManager decide based on SharedWorker availability
+    return {
+      forceMainThread: false,
+      workerScriptUrl: this.config.workerScriptUrl,
+    };
   }
 
   /**
-   * Get the discovery document
+   * Get the effective base URL — prefer discovery's base_url, fall back to config.
    */
-  getDiscoveryDocument(): DiscoveryDocument | null {
-    return this.discoveryDocument;
+  private getEffectiveBaseUrl(): string {
+    try {
+      const resolved = this.discoveryManager.getResolvedConfig();
+      return resolved.baseUrl;
+    } catch {
+      return this.config.baseUrl;
+    }
   }
-
-  /**
-   * Register an event listener
-   */
-  on(eventType: SDKEventType, listener: (event: SDKEvent) => void): void {
-    this.eventEmitter.on(eventType, listener);
-  }
-
-  /**
-   * Unregister an event listener
-   */
-  off(eventType: SDKEventType, listener: (event: SDKEvent) => void): void {
-    this.eventEmitter.off(eventType, listener);
-  }
-
-  /**
-   * Clear the current session
-   */
-  clearSession(): void {
-    this.currentSession = null;
-  }
-
-  // Private helper methods
 
   private validateConfig(config: ScribeSDKConfig): void {
     if (!config.baseUrl) {
-      throw new ValidationError('baseUrl is required for initialization');
+      throw new ValidationError('baseUrl is required');
     }
   }
 }
-
-/**
- * Get a singleton instance of ScribeClient
- * Convenience function for easy integration
- */
-export const getScribeInstance = (options: ScribeSDKConfig) => ScribeClient.getInstance(options);
