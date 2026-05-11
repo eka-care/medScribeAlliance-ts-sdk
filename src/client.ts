@@ -284,6 +284,12 @@ export class ScribeClient {
    * Uses the current active session if no sessionId is provided.
    */
   async cancelSession(sessionId?: string): Promise<SDKResult<PatchSessionResponse>> {
+    // Capture session ID before cleanup clears it
+    const resolvedSessionId =
+      sessionId ??
+      this.recordingManager.getActiveSession()?.session_id ??
+      this.sessionManager.getCurrentSession()?.session_id;
+
     // Stop recorder locally without calling endSession (avoids triggering server processing)
     if (this.recordingManager.isRecording()) {
       await this.recordingManager.forceStop();
@@ -295,7 +301,7 @@ export class ScribeClient {
 
     return this.updateSession(
       { user_status: 'cancelled', processing_status: 'cancelled' },
-      sessionId
+      resolvedSessionId
     );
   }
 
