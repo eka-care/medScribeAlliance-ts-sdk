@@ -5,6 +5,7 @@
 import { SessionStatus, TemplateStatus } from '../constants';
 
 export interface PatientDetails {
+  oid?: string;
   name?: string;
   age?: string;
   gender?: string;

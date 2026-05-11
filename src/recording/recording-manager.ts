@@ -395,6 +395,30 @@ export class RecordingManager {
   }
 
   /**
+   * Stop the recorder locally without calling endSession on the backend.
+   * Used by cancelSession — we don't want the server to start processing.
+   */
+  async forceStop(): Promise<void> {
+    if (!this.recorder || !this._isRecording) {
+      return;
+    }
+
+    try {
+      await this.recorder.stop();
+    } catch {
+      // Best-effort stop
+    } finally {
+      this.callbackRegistry.dispatch('onRecordingStateChange', {
+        type: 'ended',
+        timestamp: new Date().toISOString(),
+        data: { failedUploads: [], totalFiles: 0 },
+      });
+
+      this.cleanupRecordingState();
+    }
+  }
+
+  /**
    * Update the auth token for the active recording.
    * Forwards to the active recorder (which updates WorkerManager/transport).
    */
