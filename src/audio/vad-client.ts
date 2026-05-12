@@ -248,7 +248,12 @@ export class VadClient {
       this.callbackRegistry.dispatch('onAudioEvent', {
         type: 'frame_processed',
         timestamp: new Date().toISOString(),
-        data: { isSpeech: probabilities.isSpeech, notSpeech: probabilities.notSpeech },
+        data: {
+          isSpeech: probabilities.isSpeech,
+          notSpeech: probabilities.notSpeech,
+          frame,
+          duration: frame.length / this.samplingRate,
+        },
       });
 
       // Skip clipping logic and frame buffering if not recording

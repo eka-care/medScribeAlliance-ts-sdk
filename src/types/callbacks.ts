@@ -39,7 +39,7 @@ export interface AudioEventChunkReady {
 export interface AudioEventFrameProcessed {
   type: 'frame_processed';
   timestamp: string;
-  data: { isSpeech: number; notSpeech: number };
+  data: { isSpeech: number; notSpeech: number; frame: Float32Array; duration: number };
 }
 
 export type AudioEvent =
