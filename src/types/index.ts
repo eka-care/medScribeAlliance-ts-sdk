@@ -54,6 +54,7 @@ export type {
   RecorderConfig,
   IRecorder,
   StopRecordingResult,
+  EndRecordingResult,
   RetryUploadResult,
   AudioChunkInfo,
   UploadProgressCallback,

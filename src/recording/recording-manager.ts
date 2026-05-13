@@ -24,10 +24,14 @@ import type {
   IRecorder,
   RecordingOptions,
   RecorderConfig,
-  StopRecordingResult,
+  EndRecordingResult,
   RetryUploadResult,
 } from '../types/recording';
-import type { CreateSessionRequest, CreateSessionResponse } from '../types/session';
+import type {
+  CreateSessionRequest,
+  CreateSessionResponse,
+  EndSessionResponse,
+} from '../types/session';
 import type { ITransport } from '../types/transport';
 import { CallbackRegistry } from '../callbacks/callback-registry';
 import { SessionManager } from '../session/session-manager';
@@ -316,19 +320,13 @@ export class RecordingManager {
     }
   }
 
-  /**
-   * Stop the active recording:
-   * 1. Stop recorder (flushes remaining audio, waits for uploads)
-   * 2. End session via SessionManager (sends audio_files_sent count)
-   * 3. Clean up state
-   * 4. Dispatch events
-   *
-   * @returns Stop result with failed uploads and total files
-   */
-  async stop(): Promise<StopRecordingResult> {
+
+  async stop(): Promise<EndRecordingResult> {
     if (!this.recorder || !this._isRecording) {
-      return { failedUploads: [], totalFiles: 0 };
+      return { failedUploads: [], totalFiles: 0, sessionEnded: false };
     }
+
+    let sessionEnded = false;
 
     try {
       // 1. Stop recorder — flushes last chunk, waits for all uploads
@@ -337,44 +335,50 @@ export class RecordingManager {
       // 2. Preserve failed chunks for retry before cleanup destroys state
       this.preserveRetryContext();
 
-      // 3. End session — tell the server how many files we sent/uploaded
-      const result: StopRecordingResult = { ...stopResult };
+      // Recorder has stopped — flip the flag now so the internal retry pass
+      // below doesn't trip retryFailedUploads()'s _isRecording guard.
+      this._isRecording = false;
 
-      if (this.activeSession) {
+      // 3. If any uploads failed, run one internal retry pass.
+      let currentFailedUploads = stopResult.failedUploads;
+      if (currentFailedUploads.length > 0) {
         try {
-          const successfulUploads = stopResult.totalFiles - stopResult.failedUploads.length;
-          const endResponse = await this.sessionManager.endSession(
-            this.activeBaseUrl,
-            {
-              audio_files_sent: stopResult.totalFiles,
-              audio_files_uploaded: successfulUploads,
-            },
-            this.activeSession.session_id
-          );
-
-          result.endSessionResponse = endResponse;
-
-          // Dispatch session ended event
-          this.callbackRegistry.dispatch('onSessionEvent', {
-            type: 'ended',
-            timestamp: new Date().toISOString(),
-            data: endResponse,
-          });
-        } catch (error) {
-          // Session end failed — log but don't fail the stop
-          console.error('[ScribeSDK] Failed to end session:', error);
+          const retryResult = await this.retryFailedUploads();
+          currentFailedUploads = retryResult.stillFailed;
+        } catch (retryError) {
+          console.error('[ScribeSDK] Internal retry pass failed:', retryError);
           this.callbackRegistry.dispatch('onError', {
             type: 'transport_error',
             timestamp: new Date().toISOString(),
             error: {
-              code: 'session_end_failed',
-              message: error instanceof Error ? error.message : 'Failed to end session',
+              code: 'internal_retry_failed',
+              message:
+                retryError instanceof Error ? retryError.message : 'Retry pass failed',
             },
           });
         }
       }
 
-      // 4. Dispatch recording ended
+      const result: EndRecordingResult = {
+        failedUploads: currentFailedUploads,
+        totalFiles: stopResult.totalFiles,
+        sessionEnded: false,
+      };
+
+      // 4. End session ONLY if every chunk uploaded successfully.
+      if (currentFailedUploads.length === 0 && this.activeSession) {
+        const endResponse = await this.finalizeSession(
+          stopResult.totalFiles,
+          stopResult.totalFiles
+        );
+        if (endResponse) {
+          result.sessionEnded = true;
+          result.endSessionResponse = endResponse;
+          sessionEnded = true;
+        }
+      }
+
+      // 5. Dispatch recording ended
       this.callbackRegistry.dispatch('onRecordingStateChange', {
         type: 'ended',
         timestamp: new Date().toISOString(),
@@ -385,6 +389,7 @@ export class RecordingManager {
         console.log('[ScribeSDK] Recording stopped:', {
           totalFiles: result.totalFiles,
           failedUploads: result.failedUploads.length,
+          sessionEnded: result.sessionEnded,
         });
       }
 
@@ -402,10 +407,63 @@ export class RecordingManager {
         },
       });
 
-      return { failedUploads: [], totalFiles: 0 };
+      return { failedUploads: [], totalFiles: 0, sessionEnded: false };
     } finally {
-      // 5. Clean up regardless of success/failure
-      this.cleanupRecordingState();
+      // Cleanup:
+      // - sessionEnded === true: full cleanup (drop session + retry context).
+      // - sessionEnded === false: partial cleanup — release recorder but keep
+      //   activeSession/activeBaseUrl/retryContext so the consumer can retry
+      //   uploads and call scribe.endSession() explicitly.
+      if (sessionEnded) {
+        this.cleanupRecordingState();
+      } else {
+        this.partialCleanupAfterFailedFinalize();
+      }
+    }
+  }
+
+  /**
+   * End the session, dispatch onSessionEvent, and return the response.
+   * Called from stop() (auto-finalize) and finalizeAfterExternalEndSession()
+   * (consumer-driven). Returns undefined and dispatches onError on failure.
+   * Caller is responsible for cleanup.
+   */
+  private async finalizeSession(
+    totalFiles: number,
+    successfulUploads: number
+  ): Promise<EndSessionResponse | undefined> {
+    if (!this.activeSession) {
+      return undefined;
+    }
+
+    try {
+      const endResponse = await this.sessionManager.endSession(
+        this.activeBaseUrl,
+        {
+          audio_files_sent: totalFiles,
+          audio_files_uploaded: successfulUploads,
+        },
+        this.activeSession.session_id
+      );
+
+      this.callbackRegistry.dispatch('onSessionEvent', {
+        type: 'ended',
+        timestamp: new Date().toISOString(),
+        data: endResponse,
+      });
+
+      return endResponse;
+    } catch (error) {
+      console.error('[ScribeSDK] Failed to end session:', error);
+      this.callbackRegistry.dispatch('onError', {
+        type: 'transport_error',
+        timestamp: new Date().toISOString(),
+        error: {
+          code: 'session_end_failed',
+          message: error instanceof Error ? error.message : 'Failed to end session',
+        },
+      });
+      return undefined;
     }
   }
 
@@ -476,6 +534,25 @@ export class RecordingManager {
    */
   hasFailedUploads(): boolean {
     return (this.retryContext?.failedChunks.length ?? 0) > 0;
+  }
+
+  /**
+   * Called by ScribeClient.endSession() after a successful external endSession.
+   * Clears the preserved recording-manager state (activeSession, activeBaseUrl,
+   * retryContext) when the ended session matches our active one.
+   *
+   * If the consumer ended a different session, leaves our state alone.
+   */
+  finalizeAfterExternalEndSession(sessionId: string): void {
+    if (!this.activeSession) {
+      return;
+    }
+    if (this.activeSession.session_id !== sessionId) {
+      return;
+    }
+    this.activeSession = null;
+    this.activeBaseUrl = '';
+    this.retryContext = null;
   }
 
   /**
@@ -675,5 +752,19 @@ export class RecordingManager {
     this.activeBaseUrl = '';
     this._isRecording = false;
     this._isStarting = false;
+  }
+
+  /**
+   * Release the recorder (mic, VAD, worker) but preserve session + retry context
+   * so the consumer can call retryFailedUploads() and endSession() explicitly.
+   *
+   * Used when stop() decides NOT to auto-end the session because uploads still
+   * failed after the internal retry pass.
+   */
+  private partialCleanupAfterFailedFinalize(): void {
+    this.recorder = null;
+    this._isRecording = false;
+    this._isStarting = false;
+    // Deliberately preserved: activeSession, activeBaseUrl, retryContext
   }
 }

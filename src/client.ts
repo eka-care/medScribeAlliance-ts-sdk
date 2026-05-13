@@ -42,7 +42,7 @@ import type { ITransport } from './types/transport';
 import { DiscoveryManager } from './discovery/discovery-manager';
 import { SessionManager } from './session/session-manager';
 import { RecordingManager } from './recording/recording-manager';
-import type { StopRecordingResult, RetryUploadResult } from './types/recording';
+import type { EndRecordingResult, RetryUploadResult } from './types/recording';
 
 export class ScribeClient {
   private config: ScribeSDKConfig;
@@ -185,16 +185,23 @@ export class ScribeClient {
   }
 
   /**
-   * End the active recording — stops recorder, waits for uploads, ends session.
+   * End the active recording.
+   *
+   * Stops the recorder, flushes pending audio, waits for uploads, and — if
+   * everything uploaded — ends the session. If any chunks failed to upload,
+   * the SDK runs one internal retry pass; if files still fail, the session
+   * is NOT ended and the result reports `sessionEnded: false`.
    */
-  async endRecording(): Promise<SDKResult<StopRecordingResult>> {
+  async endRecording(): Promise<SDKResult<EndRecordingResult>> {
     return this.wrapResult(() => this.recordingManager.stop());
   }
 
   /**
    * Retry uploading audio files that failed during the last recording.
-   * Only available after endRecording() returned failed uploads.
-   * Cleared on reset() or next startRecording().
+   *
+   * Available after `endRecording()` returns `sessionEnded: false` (or any time
+   * `hasFailedUploads()` is true). After retrying, call `endSession()` to
+   * finalize. Retry context is cleared on `reset()` or the next `startRecording()`.
    */
   async retryFailedUploads(): Promise<SDKResult<RetryUploadResult>> {
     return this.wrapResult(() => this.recordingManager.retryFailedUploads());
@@ -234,15 +241,32 @@ export class ScribeClient {
   }
 
   /**
-   * End a session directly (without stopping a recording).
-   * Uses the current active session if no sessionId is provided.
+   * End a session directly.
    */
   async endSession(
     request: EndSessionRequest,
     sessionId?: string
   ): Promise<SDKResult<EndSessionResponse>> {
     const baseUrl = this.getEffectiveBaseUrl();
-    return this.wrapResult(() => this.sessionManager.endSession(baseUrl, request, sessionId));
+    return this.wrapResult(async () => {
+      // Resolve the session id we're ending BEFORE the call — sessionManager
+      // clears its currentSession on success, so reading it after is unreliable.
+      const endedSessionId = sessionId ?? this.recordingManager.getActiveSession()?.session_id;
+
+      const response = await this.sessionManager.endSession(baseUrl, request, sessionId);
+
+      if (endedSessionId) {
+        this.recordingManager.finalizeAfterExternalEndSession(endedSessionId);
+      }
+
+      this.callbackRegistry.dispatch('onSessionEvent', {
+        type: 'ended',
+        timestamp: new Date().toISOString(),
+        data: response,
+      });
+
+      return response;
+    });
   }
 
   /**

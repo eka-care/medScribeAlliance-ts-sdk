@@ -38,6 +38,13 @@ export interface IRecorder {
 export interface StopRecordingResult {
   failedUploads: string[];
   totalFiles: number;
+}
+
+/**
+ * Result of ScribeClient.endRecording() / RecordingManager.stop().
+ */
+export interface EndRecordingResult extends StopRecordingResult {
+  sessionEnded: boolean;
   endSessionResponse?: EndSessionResponse;
 }
 
