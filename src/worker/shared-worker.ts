@@ -190,9 +190,9 @@ async function handleCompressAndUpload(
   sourcePort: MessagePort
 ): Promise<void> {
   try {
-    const mp3Blob = encodeToMp3(audioFrames);
+    const encoded = encodeToMp3(audioFrames);
 
-    if (!mp3Blob) {
+    if (!encoded) {
       sendToPort(sourcePort, {
         type: 'upload_failed',
         fileName,
@@ -201,7 +201,15 @@ async function handleCompressAndUpload(
       return;
     }
 
-    const result = await uploadWithRetry(uploadUrl, fileName, mp3Blob, headers);
+    // Send raw MP3 bytes back to the main thread so consumers can offer
+    // download / local playback via the chunk_ready event.
+    sendToPort(sourcePort, {
+      type: 'chunk_encoded',
+      fileName,
+      chunkData: encoded.chunks,
+    });
+
+    const result = await uploadWithRetry(uploadUrl, fileName, encoded.blob, headers);
 
     if (result.success) {
       sendToPort(sourcePort, { type: 'upload_success', fileName });
@@ -210,7 +218,7 @@ async function handleCompressAndUpload(
         type: 'upload_failed',
         fileName,
         error: result.error ?? 'Upload failed after retries',
-        blob: mp3Blob,
+        blob: encoded.blob,
       });
     }
   } catch (error: any) {

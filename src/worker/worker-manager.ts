@@ -212,6 +212,20 @@ export class WorkerManager {
    */
   private handleWorkerMessage(message: WorkerToMainMessage): void {
     switch (message.type) {
+      case 'chunk_encoded': {
+        const chunkIndex = this.findChunkIndex(message.fileName);
+        this.callbackRegistry.dispatch('onAudioEvent', {
+          type: 'chunk_ready',
+          timestamp: new Date().toISOString(),
+          data: {
+            chunkIndex,
+            fileName: message.fileName,
+            chunkData: message.chunkData,
+          },
+        });
+        break;
+      }
+
       case 'upload_success': {
         const chunkIndex = this.findChunkIndex(message.fileName);
         if (chunkIndex >= 0) {
@@ -277,9 +291,9 @@ export class WorkerManager {
 
     try {
       // 1. Encode to MP3
-      mp3Blob = encodeToMp3(audioFrames);
+      const encoded = encodeToMp3(audioFrames);
 
-      if (!mp3Blob) {
+      if (!encoded) {
         this.fileManager.markFailure(chunkIndex, new Blob(), 'MP3 encoding failed');
         this.callbackRegistry.dispatch('onUploadEvent', {
           type: 'failed',
@@ -289,7 +303,17 @@ export class WorkerManager {
         return;
       }
 
-      // 2. Upload via ITransport (handles HTTP or IPC transparently)
+      mp3Blob = encoded.blob;
+
+      // 2. Chunk is now encoded — dispatch chunk_ready with the MP3 bytes
+      //    so the consumer can offer download / local playback.
+      this.callbackRegistry.dispatch('onAudioEvent', {
+        type: 'chunk_ready',
+        timestamp: new Date().toISOString(),
+        data: { chunkIndex, fileName, chunkData: encoded.chunks },
+      });
+
+      // 3. Upload via ITransport (handles HTTP or IPC transparently)
       const fullUrl = this.uploadUrl.endsWith('/')
         ? `${this.uploadUrl}${fileName}`
         : `${this.uploadUrl}/${fileName}`;
@@ -302,7 +326,7 @@ export class WorkerManager {
         uploadBlob: mp3Blob,
       });
 
-      // 3. Success — transport.request() throws on failure, so reaching here means success
+      // 4. Success — transport.request() throws on failure, so reaching here means success
       this.fileManager.markSuccess(chunkIndex);
       this.dispatchUploadProgress();
     } catch (error: any) {

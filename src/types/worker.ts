@@ -33,6 +33,12 @@ export type MainToWorkerMessage =
 
 // --- Worker -> Main thread ---
 
+export interface WorkerChunkEncodedMessage {
+  type: 'chunk_encoded';
+  fileName: string;
+  chunkData: Uint8Array[];
+}
+
 export interface WorkerUploadSuccessMessage {
   type: 'upload_success';
   fileName: string;
@@ -54,6 +60,7 @@ export interface WorkerTokenRequiredMessage {
 }
 
 export type WorkerToMainMessage =
+  | WorkerChunkEncodedMessage
   | WorkerUploadSuccessMessage
   | WorkerUploadFailedMessage
   | WorkerAllUploadsCompleteMessage

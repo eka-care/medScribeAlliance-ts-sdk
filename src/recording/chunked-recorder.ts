@@ -279,15 +279,8 @@ export class ChunkedRecorder implements IRecorder {
       // Reset buffer for next chunk
       this.bufferManager.resetBufferState();
 
-      // Send to WorkerManager for MP3 compression + upload
+      // Send to WorkerManager for MP3 compression + upload.
       this.workerManager.compressAndUpload(audioFrames, fileName, chunkIndex);
-
-      // Dispatch chunk_ready event
-      this.callbackRegistry.dispatch('onAudioEvent', {
-        type: 'chunk_ready',
-        timestamp: new Date().toISOString(),
-        data: { chunkIndex, fileName },
-      });
     } catch (error) {
       console.error('[ScribeSDK] Error handling clip point:', error);
       this.callbackRegistry.dispatch('onError', {

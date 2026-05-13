@@ -33,7 +33,11 @@ export interface AudioEventSilenceWarning {
 export interface AudioEventChunkReady {
   type: 'chunk_ready';
   timestamp: string;
-  data: { chunkIndex: number; fileName: string };
+  data: {
+    chunkIndex: number;
+    fileName: string;
+    chunkData: Uint8Array[];
+  };
 }
 
 export interface AudioEventFrameProcessed {

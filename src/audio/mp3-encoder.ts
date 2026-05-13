@@ -9,19 +9,26 @@
 import * as lamejs from '@breezystack/lamejs';
 import { BITRATE, SAMPLING_RATE, CHANNELS, AUDIO_EXTENSION_TYPE_MAP, OUTPUT_FORMAT } from './constants';
 
+export interface EncodedMp3 {
+  /** MP3 Blob ready for upload. */
+  blob: Blob;
+  /** Underlying MP3 byte chunks (same data as `blob`) — useful for client-side download. */
+  chunks: Uint8Array[];
+}
+
 /**
- * Compress raw PCM audio (Float32Array) into an MP3 Blob.
+ * Compress raw PCM audio (Float32Array) into an MP3 Blob plus its raw byte chunks.
  *
  * @param audioFrames - Raw PCM audio samples (Float32 range: -1.0 to 1.0)
  * @param sampleRate - Sample rate in Hz (default: 16000)
  * @param bitrate - MP3 bitrate in kbps (default: 128)
- * @returns MP3 Blob ready for upload, or null if encoding fails
+ * @returns { blob, chunks } or null if encoding fails.
  */
 export function encodeToMp3(
   audioFrames: Float32Array,
   sampleRate: number = SAMPLING_RATE,
   bitrate: number = BITRATE
-): Blob | null {
+): EncodedMp3 | null {
   try {
     const encoder = new lamejs.Mp3Encoder(CHANNELS, sampleRate, bitrate);
 
@@ -48,7 +55,10 @@ export function encodeToMp3(
       return null;
     }
 
-    return new Blob(mp3Chunks as BlobPart[], { type: AUDIO_EXTENSION_TYPE_MAP[OUTPUT_FORMAT] });
+    const blob = new Blob(mp3Chunks as BlobPart[], {
+      type: AUDIO_EXTENSION_TYPE_MAP[OUTPUT_FORMAT],
+    });
+    return { blob, chunks: mp3Chunks };
   } catch (error) {
     console.error('[ScribeSDK] MP3 encoding failed:', error);
     return null;
