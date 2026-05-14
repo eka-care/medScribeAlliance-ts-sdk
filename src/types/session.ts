@@ -51,11 +51,11 @@ export interface GetSessionStatusResponse {
   session_id: string;
   status: SessionStatus;
   created_at: string;
-  expires_at?: string;
-  expired_at?: string;
-  completed_at?: string;
-  model_used?: string;
-  language_detected?: string;
+  expires_at?: string | null;
+  expired_at?: string | null;
+  completed_at?: string | null;
+  model_used?: string | null;
+  language_detected?: string | null;
   audio_files_received: number;
   audio_files: string[];
   audio_files_processed?: number;
