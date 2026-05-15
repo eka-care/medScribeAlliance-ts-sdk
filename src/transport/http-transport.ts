@@ -169,7 +169,7 @@ export class HttpTransport implements ITransport {
     const init: RequestInit = {
       method: config.method,
       headers,
-      credentials: 'same-origin',
+      credentials: 'include',
     };
 
     if (config.isUpload && config.uploadBlob) {
