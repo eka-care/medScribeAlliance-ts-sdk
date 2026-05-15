@@ -116,6 +116,7 @@ async function uploadWithRetry(
         method: 'POST',
         body: blob,
         headers: requestHeaders,
+        credentials: 'include',
       });
 
       if (response.ok) {
