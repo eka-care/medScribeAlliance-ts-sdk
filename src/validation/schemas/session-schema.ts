@@ -19,7 +19,7 @@ export const CreateSessionRequestSchema = z.object({
   upload_type: z.string().min(1, 'upload_type is required'),
   communication_protocol: z.string().min(1, 'communication_protocol is required'),
   model: z.string().optional(),
-  language_hint: z.array(z.string().max(2, 'language_hint items must be at most 2 characters')).optional(),
+  language_hint: z.array(z.string()).optional(),
   transcript_language: z.string().optional(),
   additional_data: z.record(z.string(), z.any()).optional(),
   session_mode: z.string().optional(),
@@ -38,7 +38,10 @@ export type ValidatedCreateSessionRequest = z.infer<typeof CreateSessionRequestS
 
 export const EndSessionRequestSchema = z.object({
   audio_files_sent: z.number().int().min(0, 'audio_files_sent must be a non-negative integer'),
-  audio_files_uploaded: z.number().int().min(0, 'audio_files_uploaded must be a non-negative integer'),
+  audio_files_uploaded: z
+    .number()
+    .int()
+    .min(0, 'audio_files_uploaded must be a non-negative integer'),
 });
 
 export const PatchSessionRequestSchema = z.object({

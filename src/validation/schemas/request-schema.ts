@@ -16,7 +16,7 @@ export const RecordingOptionsSchema = z.object({
   uploadType: z.string().optional(),
   communicationProtocol: z.string().optional(),
   model: z.string().optional(),
-  languageHint: z.array(z.string().max(2, 'languageHint items must be at most 2 characters')).optional(),
+  languageHint: z.array(z.string()).optional(),
   transcriptLanguage: z.string().optional(),
   deviceId: z.string().optional(),
   additionalData: z.record(z.string(), z.any()).optional(),
