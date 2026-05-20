@@ -12,6 +12,7 @@ import {
   ServiceInfo,
   CapabilitiesInfo,
   ModelConfig,
+  ApiCallResult,
 } from '../types';
 import { WELL_KNOWN_PATH, DISCOVERY_CACHE_TTL_MS } from '../constants';
 import { DiscoveryError } from '../utils/errors';
@@ -38,14 +39,17 @@ export class DiscoveryManager {
    * Fetch and validate the discovery document from the well-known endpoint.
    * Caches the result for 1 hour (configurable).
    */
-  async fetchDiscovery(baseUrl: string, forceRefresh: boolean = false): Promise<ResolvedConfig> {
+  async fetchDiscovery(
+    baseUrl: string,
+    forceRefresh: boolean = false
+  ): Promise<ApiCallResult<ResolvedConfig>> {
     try {
-      // Return cached config if still valid
+      // Return cached config if still valid — httpStatus undefined (no HTTP call)
       if (!forceRefresh && this.resolvedConfig && this.isCacheValid()) {
         if (this.debug) {
           console.log('[ScribeSDK] Using cached discovery document');
         }
-        return this.resolvedConfig;
+        return { data: this.resolvedConfig, httpStatus: undefined };
       }
 
       const discoveryUrl = baseUrl + WELL_KNOWN_PATH;
@@ -75,7 +79,7 @@ export class DiscoveryManager {
         console.log('[ScribeSDK] Discovery complete:', doc.service?.name ?? doc.protocol);
       }
 
-      return config;
+      return { data: config, httpStatus: response.status };
     } catch (error) {
       if (error instanceof DiscoveryError) {
         throw error;

@@ -90,6 +90,7 @@ export type {
   ApiError,
   ErrorResponse,
   SDKResult,
+  ApiCallResult,
 } from './types';
 
 // --- Constants & Enums ---

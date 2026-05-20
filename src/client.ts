@@ -28,6 +28,7 @@ import type {
   EndSessionRequest,
   EndSessionResponse,
   SDKResult,
+  ApiCallResult,
   PatchSessionRequest,
   PatchSessionResponse,
   ProcessTemplateResponse,
@@ -100,11 +101,14 @@ export class ScribeClient {
       return { success: true, data: undefined };
     }
 
-    return this.wrapResult(async () => {
+    return this.wrapResult<void>(async () => {
+      let httpStatus: number | undefined;
       if (this.config.autoDiscovery !== false) {
-        await this.discoveryManager.fetchDiscovery(this.config.baseUrl);
+        const discoveryResult = await this.discoveryManager.fetchDiscovery(this.config.baseUrl);
+        httpStatus = discoveryResult.httpStatus;
       }
       this.isInitialized = true;
+      return { data: undefined, httpStatus };
     });
   }
 
@@ -253,7 +257,7 @@ export class ScribeClient {
       // clears its currentSession on success, so reading it after is unreliable.
       const endedSessionId = sessionId ?? this.recordingManager.getActiveSession()?.session_id;
 
-      const response = await this.sessionManager.endSession(baseUrl, request, sessionId);
+      const result = await this.sessionManager.endSession(baseUrl, request, sessionId);
 
       if (endedSessionId) {
         this.recordingManager.finalizeAfterExternalEndSession(endedSessionId);
@@ -262,10 +266,10 @@ export class ScribeClient {
       this.callbackRegistry.dispatch('onSessionEvent', {
         type: 'ended',
         timestamp: new Date().toISOString(),
-        data: response,
+        data: result.data,
       });
 
-      return response;
+      return result;
     });
   }
 
@@ -437,13 +441,16 @@ export class ScribeClient {
   // --- Private ---
 
   /**
-   * Wraps an async operation into SDKResult.
-   * Internal layers throw — this converts to { success, data/error }.
+   * Wraps an async manager operation into SDKResult.
+   * Internal manager methods always return `ApiCallResult<T>` so the HTTP
+   * status from the underlying call (when present) is propagated to the
+   * SDKResult success variant. On error, status is preserved via
+   * `error.httpStatus`.
    */
-  private async wrapResult<T>(fn: () => Promise<T>): Promise<SDKResult<T>> {
+  private async wrapResult<T>(fn: () => Promise<ApiCallResult<T>>): Promise<SDKResult<T>> {
     try {
-      const data = await fn();
-      return { success: true, data };
+      const result = await fn();
+      return { success: true, data: result.data, httpStatus: result.httpStatus };
     } catch (error) {
       return { success: false, error: this.toScribeError(error) };
     }

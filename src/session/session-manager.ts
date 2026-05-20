@@ -22,6 +22,7 @@ import {
   PatchSessionRequest,
   PatchSessionResponse,
   ProcessTemplateResponse,
+  ApiCallResult,
 } from '../types';
 import { SessionStatus, DEFAULT_POLL_MAX_ATTEMPTS, DEFAULT_POLL_INTERVAL_MS } from '../constants';
 import { Validator } from '../validation/validator';
@@ -48,7 +49,7 @@ export class SessionManager {
   async createSession(
     baseUrl: string,
     request: CreateSessionRequest
-  ): Promise<CreateSessionResponse> {
+  ): Promise<ApiCallResult<CreateSessionResponse>> {
     try {
       this.validator.validateCreateSessionRequest(request);
 
@@ -72,7 +73,7 @@ export class SessionManager {
         console.log('[ScribeSDK] Session created:', response.data.session_id);
       }
 
-      return response.data;
+      return { data: response.data, httpStatus: response.status };
     } catch (error) {
       if (error instanceof ScribeError) {
         throw error;
@@ -91,7 +92,7 @@ export class SessionManager {
     baseUrl: string,
     request: EndSessionRequest,
     sessionId?: string
-  ): Promise<EndSessionResponse> {
+  ): Promise<ApiCallResult<EndSessionResponse>> {
     try {
       const id = sessionId ?? this.currentSession?.session_id;
 
@@ -127,7 +128,7 @@ export class SessionManager {
         console.log('[ScribeSDK] Session ended:', id, response.data.status);
       }
 
-      return response.data;
+      return { data: response.data, httpStatus: response.status };
     } catch (error) {
       if (error instanceof ScribeError) {
         throw error;
@@ -147,7 +148,7 @@ export class SessionManager {
     baseUrl: string,
     sessionId?: string,
     templateId?: string
-  ): Promise<GetSessionStatusResponse> {
+  ): Promise<ApiCallResult<GetSessionStatusResponse>> {
     try {
       const id = sessionId ?? this.currentSession?.session_id;
 
@@ -178,7 +179,7 @@ export class SessionManager {
         console.log('[ScribeSDK] Session status:', id, response.data.status);
       }
 
-      return response.data;
+      return { data: response.data, httpStatus: response.status };
     } catch (error) {
       if (error instanceof ScribeError) {
         throw error;
@@ -196,7 +197,7 @@ export class SessionManager {
     baseUrl: string,
     request: PatchSessionRequest,
     sessionId?: string
-  ): Promise<PatchSessionResponse> {
+  ): Promise<ApiCallResult<PatchSessionResponse>> {
     try {
       const id = sessionId ?? this.currentSession?.session_id;
 
@@ -225,7 +226,7 @@ export class SessionManager {
         console.log('[ScribeSDK] Session patched:', id, response.data.status);
       }
 
-      return response.data;
+      return { data: response.data, httpStatus: response.status };
     } catch (error) {
       if (error instanceof ScribeError) {
         throw error;
@@ -243,7 +244,7 @@ export class SessionManager {
     baseUrl: string,
     templateId: string,
     sessionId?: string
-  ): Promise<ProcessTemplateResponse> {
+  ): Promise<ApiCallResult<ProcessTemplateResponse>> {
     try {
       const id = sessionId ?? this.currentSession?.session_id;
 
@@ -270,7 +271,7 @@ export class SessionManager {
         console.log('[ScribeSDK] Template processing triggered:', templateId, response.data.status);
       }
 
-      return response.data;
+      return { data: response.data, httpStatus: response.status };
     } catch (error) {
       if (error instanceof ScribeError) {
         throw error;
@@ -290,7 +291,7 @@ export class SessionManager {
     baseUrl: string,
     sessionId?: string,
     options?: PollOptions
-  ): Promise<GetSessionStatusResponse> {
+  ): Promise<ApiCallResult<GetSessionStatusResponse>> {
     try {
       const id = sessionId ?? this.currentSession?.session_id;
 
@@ -316,7 +317,8 @@ export class SessionManager {
           );
         }
 
-        const status = await this.getSessionStatus(baseUrl, id);
+        const statusResult = await this.getSessionStatus(baseUrl, id);
+        const status = statusResult.data;
 
         // Notify progress callback
         if (options?.onProgress) {
@@ -332,7 +334,7 @@ export class SessionManager {
           if (this.debug) {
             console.log('[ScribeSDK] Poll complete:', id, status.status, `(attempt ${attempt})`);
           }
-          return status;
+          return statusResult;
         }
 
         // Wait before next poll (skip wait on last attempt)

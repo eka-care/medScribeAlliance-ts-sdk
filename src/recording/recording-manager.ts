@@ -32,6 +32,7 @@ import type {
   CreateSessionResponse,
   EndSessionResponse,
 } from '../types/session';
+import type { ApiCallResult } from '../types/common';
 import type { ITransport } from '../types/transport';
 import { CallbackRegistry } from '../callbacks/callback-registry';
 import { SessionManager } from '../session/session-manager';
@@ -97,7 +98,7 @@ export class RecordingManager {
     baseUrl: string,
     options: RecordingOptions,
     accessToken?: string
-  ): Promise<CreateSessionResponse> {
+  ): Promise<ApiCallResult<CreateSessionResponse>> {
     if (this._isRecording || this._isStarting) {
       throw new ScribeError('Recording is already in progress. Stop the current recording first.');
     }
@@ -129,8 +130,11 @@ export class RecordingManager {
     try {
       // 2. Create session — transport/validation errors possible
       let session: CreateSessionResponse;
+      let createSessionHttpStatus: number | undefined;
       try {
-        session = await this.sessionManager.createSession(baseUrl, sessionRequest);
+        const createResult = await this.sessionManager.createSession(baseUrl, sessionRequest);
+        session = createResult.data;
+        createSessionHttpStatus = createResult.httpStatus;
       } catch (error) {
         this.dispatchStartError('transport_error', 'session_creation_failed', error);
         throw error;
@@ -190,7 +194,7 @@ export class RecordingManager {
         console.log('[ScribeSDK] Recording started:', session.session_id);
       }
 
-      return session;
+      return { data: session, httpStatus: createSessionHttpStatus };
     } finally {
       this._isStarting = false;
     }
@@ -211,7 +215,7 @@ export class RecordingManager {
     session: CreateSessionResponse,
     options?: { uploadType?: string; deviceId?: string },
     accessToken?: string
-  ): Promise<void> {
+  ): Promise<ApiCallResult<void>> {
     if (this._isRecording || this._isStarting) {
       throw new ScribeError('Recording is already in progress. Stop the current recording first.');
     }
@@ -271,6 +275,9 @@ export class RecordingManager {
       if (this.config.debug) {
         console.log('[ScribeSDK] Recording started with existing session:', session.session_id);
       }
+
+      // No HTTP call in this path — session was created externally and passed in.
+      return { data: undefined, httpStatus: undefined };
     } finally {
       this._isStarting = false;
     }
@@ -321,12 +328,16 @@ export class RecordingManager {
   }
 
 
-  async stop(): Promise<EndRecordingResult> {
+  async stop(): Promise<ApiCallResult<EndRecordingResult>> {
     if (!this.recorder || !this._isRecording) {
-      return { failedUploads: [], totalFiles: 0, sessionEnded: false };
+      return {
+        data: { failedUploads: [], totalFiles: 0, sessionEnded: false },
+        httpStatus: undefined,
+      };
     }
 
     let sessionEnded = false;
+    let endSessionHttpStatus: number | undefined;
 
     try {
       // 1. Stop recorder — flushes last chunk, waits for all uploads
@@ -344,7 +355,7 @@ export class RecordingManager {
       if (currentFailedUploads.length > 0) {
         try {
           const retryResult = await this.retryFailedUploads();
-          currentFailedUploads = retryResult.stillFailed;
+          currentFailedUploads = retryResult.data.stillFailed;
         } catch (retryError) {
           console.error('[ScribeSDK] Internal retry pass failed:', retryError);
           this.callbackRegistry.dispatch('onError', {
@@ -367,13 +378,14 @@ export class RecordingManager {
 
       // 4. End session ONLY if every chunk uploaded successfully.
       if (currentFailedUploads.length === 0 && this.activeSession) {
-        const endResponse = await this.finalizeSession(
+        const finalize = await this.finalizeSession(
           stopResult.totalFiles,
           stopResult.totalFiles
         );
-        if (endResponse) {
+        if (finalize) {
           result.sessionEnded = true;
-          result.endSessionResponse = endResponse;
+          result.endSessionResponse = finalize.data;
+          endSessionHttpStatus = finalize.httpStatus;
           sessionEnded = true;
         }
       }
@@ -393,7 +405,7 @@ export class RecordingManager {
         });
       }
 
-      return result;
+      return { data: result, httpStatus: endSessionHttpStatus };
     } catch (error) {
       console.error('[ScribeSDK] Error stopping recording:', error);
 
@@ -407,7 +419,10 @@ export class RecordingManager {
         },
       });
 
-      return { failedUploads: [], totalFiles: 0, sessionEnded: false };
+      return {
+        data: { failedUploads: [], totalFiles: 0, sessionEnded: false },
+        httpStatus: undefined,
+      };
     } finally {
       // Cleanup:
       // - sessionEnded === true: full cleanup (drop session + retry context).
@@ -431,13 +446,13 @@ export class RecordingManager {
   private async finalizeSession(
     totalFiles: number,
     successfulUploads: number
-  ): Promise<EndSessionResponse | undefined> {
+  ): Promise<ApiCallResult<EndSessionResponse> | undefined> {
     if (!this.activeSession) {
       return undefined;
     }
 
     try {
-      const endResponse = await this.sessionManager.endSession(
+      const endResult = await this.sessionManager.endSession(
         this.activeBaseUrl,
         {
           audio_files_sent: totalFiles,
@@ -449,10 +464,10 @@ export class RecordingManager {
       this.callbackRegistry.dispatch('onSessionEvent', {
         type: 'ended',
         timestamp: new Date().toISOString(),
-        data: endResponse,
+        data: endResult.data,
       });
 
-      return endResponse;
+      return endResult;
     } catch (error) {
       console.error('[ScribeSDK] Failed to end session:', error);
       this.callbackRegistry.dispatch('onError', {
@@ -562,13 +577,13 @@ export class RecordingManager {
    * Each file is re-uploaded via transport.request() with retry logic.
    * Successfully retried files are removed from the retry context.
    */
-  async retryFailedUploads(): Promise<RetryUploadResult> {
+  async retryFailedUploads(): Promise<ApiCallResult<RetryUploadResult>> {
     if (this._isRecording) {
       throw new ScribeError('Cannot retry uploads while recording is active.');
     }
 
     if (!this.retryContext || this.retryContext.failedChunks.length === 0) {
-      return { retried: 0, succeeded: 0, stillFailed: [] };
+      return { data: { retried: 0, succeeded: 0, stillFailed: [] }, httpStatus: undefined };
     }
 
     const { uploadUrl, failedChunks } = this.retryContext;
@@ -635,7 +650,8 @@ export class RecordingManager {
       console.log(`[ScribeSDK] Retry complete: ${succeeded}/${retried} succeeded`);
     }
 
-    return { retried, succeeded, stillFailed };
+    // No single HTTP call for the aggregate retry pass — httpStatus is undefined.
+    return { data: { retried, succeeded, stillFailed }, httpStatus: undefined };
   }
 
   // --- Private ---
