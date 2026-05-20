@@ -29,4 +29,11 @@ export interface ScribeSDKConfig {
 
   /** Auto-fetch discovery document on init. Default: true */
   autoDiscovery?: boolean;
+
+  /**
+   * Optional `flavour` identifier. When set, the SDK sends it as the
+   * `flavour` header on every API request (including chunk uploads).
+   * Server uses this to route or tag requests per deployment variant.
+   */
+  flavour?: string;
 }

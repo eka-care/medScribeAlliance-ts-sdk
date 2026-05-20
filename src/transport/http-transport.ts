@@ -22,6 +22,7 @@ import { retryWithBackoff, RetryOptions } from '../utils/retry';
 
 export class HttpTransport implements ITransport {
   private accessToken?: string;
+  private flavour?: string;
   private debug: boolean;
   private onUnauthorized?: () => Promise<string | undefined>;
 
@@ -30,10 +31,12 @@ export class HttpTransport implements ITransport {
 
   constructor(options: {
     accessToken?: string;
+    flavour?: string;
     debug?: boolean;
     onUnauthorized?: () => Promise<string | undefined>;
   }) {
     this.accessToken = options.accessToken;
+    this.flavour = options.flavour;
     this.debug = options.debug ?? false;
     this.onUnauthorized = options.onUnauthorized;
   }
@@ -155,6 +158,10 @@ export class HttpTransport implements ITransport {
 
     if (this.accessToken) {
       headers['Authorization'] = `Bearer ${this.accessToken}`;
+    }
+
+    if (this.flavour) {
+      headers['flavour'] = this.flavour;
     }
 
     // Merge any caller-provided headers (overrides defaults)

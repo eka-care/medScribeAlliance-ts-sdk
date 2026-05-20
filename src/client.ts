@@ -85,6 +85,7 @@ export class ScribeClient {
       this.transport,
       {
         debug: this.config.debug,
+        flavour: this.config.flavour,
         workerConfig: this.resolveWorkerConfig(),
       }
     );
@@ -520,6 +521,7 @@ export class ScribeClient {
       return new IpcTransport({
         bridge: this.config.ipcTransport,
         accessToken: this.config.accessToken,
+        flavour: this.config.flavour,
         debug: this.config.debug,
         onUnauthorized,
       });
@@ -527,6 +529,7 @@ export class ScribeClient {
 
     return new HttpTransport({
       accessToken: this.config.accessToken,
+      flavour: this.config.flavour,
       debug: this.config.debug,
       onUnauthorized,
     });

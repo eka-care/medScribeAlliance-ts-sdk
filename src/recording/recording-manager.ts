@@ -45,6 +45,8 @@ import { ScribeError } from '../utils/errors';
 export interface RecordingManagerConfig {
   workerConfig?: WorkerManagerConfig;
   debug?: boolean;
+  /** Optional `flavour` identifier — sent as a header on chunk upload requests. */
+  flavour?: string;
 }
 
 export class RecordingManager {
@@ -680,6 +682,9 @@ export class RecordingManager {
     const headers: Record<string, string> = {};
     if (accessToken) {
       headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+    if (this.config.flavour) {
+      headers['flavour'] = this.config.flavour;
     }
     return headers;
   }
