@@ -26,7 +26,7 @@ export const CreateSessionRequestSchema = z.object({
   patient_details: z
     .object({
       name: z.string().optional(),
-      age: z.string().optional(),
+      age: z.union([z.string(), z.number()]).optional(),
       gender: z.string().optional(),
       mobile: z.number().optional(),
     })
@@ -50,7 +50,7 @@ export const PatchSessionRequestSchema = z.object({
   patient_details: z
     .object({
       name: z.string().optional(),
-      age: z.string().optional(),
+      age: z.union([z.string(), z.number()]).optional(),
       gender: z.string().optional(),
       mobile: z.number().optional(),
     })
@@ -73,7 +73,7 @@ export const CreateSessionResponseSchema = z.object({
   patient_details: z
     .object({
       name: z.string().optional(),
-      age: z.string().optional(),
+      age: z.union([z.string(), z.number()]).optional(),
       gender: z.string().optional(),
       mobile: z.number().optional(),
     })
@@ -96,14 +96,13 @@ export const GetSessionStatusResponseSchema = z.object({
   status: z.string(),
   created_at: z.string(),
   expires_at: z.string().nullish(),
-  expired_at: z.string().nullish(),
   completed_at: z.string().nullish(),
   model_used: z.string().nullish(),
   language_detected: z.string().nullish(),
   audio_files_received: z.number().int(),
   audio_files: z.array(z.string()),
   audio_files_processed: z.number().int().optional(),
-  additional_data: z.record(z.string(), z.any()),
+  additional_data: z.record(z.string(), z.any()).optional(),
   templates: z.array(z.record(z.string(), z.any())).optional(),
   transcript: z.string().nullable().optional(),
   processing_errors: z
@@ -125,7 +124,7 @@ export const GetSessionStatusResponseSchema = z.object({
   patient_details: z
     .object({
       name: z.string().optional(),
-      age: z.string().optional(),
+      age: z.union([z.string(), z.number()]).optional(),
       gender: z.string().optional(),
       mobile: z.number().optional(),
     })
