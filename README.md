@@ -390,6 +390,165 @@ Register with `client.registerCallback(name, handler)`, remove with `client.remo
 | `onError` | `ErrorEvent` | VAD, worker, transport, or validation errors. |
 | `onTokenRequired` | `TokenRequiredEvent` | 401 received — call `event.resolve(newToken)` to retry. |
 
+#### Payload Shapes
+
+```ts
+// onRecordingStateChange
+interface RecordingStateChangeEvent {
+  type: 'started' | 'paused' | 'resumed' | 'ended';
+  timestamp: string;
+  data?: any;
+}
+
+// onAudioEvent — discriminated union by `type`
+type AudioEvent =
+  | { type: 'user_speech';      timestamp: string; data: { isSpeaking: boolean } }
+  | { type: 'silence_warning';  timestamp: string; data: { durationMs: number } }
+  | { type: 'chunk_ready';      timestamp: string; data: { chunkIndex: number; fileName: string; chunkData: Uint8Array[] } }
+  | { type: 'frame_processed';  timestamp: string; data: { isSpeech: number; notSpeech: number; frame: Float32Array; duration: number } };
+
+// onUploadEvent
+type UploadEvent =
+  | { type: 'progress'; timestamp: string; data: { successCount: number; totalCount: number } }
+  | { type: 'failed';   timestamp: string; data: { fileName: string; error: string } }
+  | { type: 'retry';    timestamp: string; data: { fileName: string; attempt: number } };
+
+// onSessionEvent
+type SessionEvent =
+  | { type: 'created';        timestamp: string; data: CreateSessionResponse }
+  | { type: 'ended';          timestamp: string; data: EndSessionResponse }
+  | { type: 'discarded';      timestamp: string; data: { sessionId: string | null; reason: 'cleared' | 'cancelled' | 'reset' } }
+  | { type: 'status_update';  timestamp: string; data: GetSessionStatusResponse }
+  | { type: 'partial_result'; timestamp: string; data: any };
+
+// onError
+interface ErrorEvent {
+  type: 'vad_error' | 'worker_error' | 'transport_error' | 'validation_error';
+  timestamp: string;
+  error: { code: string; message: string; details?: any };
+}
+
+// onTokenRequired — call event.resolve(newToken) to retry the failed request
+interface TokenRequiredEvent {
+  resolve: (newToken: string) => void;
+}
+```
+
+## Request / Response Types
+
+#### Session
+
+```ts
+interface CreateSessionRequest {
+  templates: string[];
+  upload_type: string;                   // 'chunked' | 'single' | 'stream'
+  communication_protocol: string;        // 'http' | 'websocket'
+  model?: string;
+  language_hint?: string[];
+  transcript_language?: string;
+  additional_data?: Record<string, any>;
+  session_mode?: string;                 // 'consultation' | 'dictation'
+  patient_details?: PatientDetails;
+  session_id?: string;                   // optional client-supplied ID
+}
+
+interface CreateSessionResponse {
+  session_id: string;
+  status: SessionStatus;
+  created_at: string;
+  expires_at: string;
+  upload_url: string;
+  patient_details?: PatientDetails;
+}
+
+interface PatchSessionRequest {
+  user_status?: string;
+  processing_status?: string;
+  patient_details?: PatientDetails;
+  additional_data?: Record<string, any>;
+  language_hint?: string[];
+  transcript_language?: string;
+  templates?: string[];
+}
+
+interface PatchSessionResponse {
+  session_id: string;
+  status: string;
+  message: string;
+}
+
+interface EndSessionResponse {
+  session_id: string;
+  status: SessionStatus;
+  message: string;
+  audio_files_received: number;
+  audio_files: string[];
+}
+
+interface GetSessionStatusResponse {
+  session_id: string;
+  status: SessionStatus;
+  created_at: string;
+  expires_at?: string | null;
+  expired_at?: string | null;
+  completed_at?: string | null;
+  model_used?: string | null;
+  language_detected?: string | null;
+  audio_files_received: number;
+  audio_files: string[];
+  audio_files_processed?: number;
+  additional_data: Record<string, any>;
+  templates?: TemplateEntry[];           // { [templateId]: { status, data, fhir, error, ... } }
+  transcript?: string;
+  processing_errors?: ProcessingError[];
+  error?: { code: string; message: string; details?: Record<string, any> };
+  patient_details?: PatientDetails;
+  message?: string;
+}
+
+interface ProcessTemplateResponse {
+  session_id: string;
+  template_id: string;
+  status: string;
+  message: string;
+}
+
+interface PatientDetails {
+  oid?: string;
+  name?: string;
+  age?: string;
+  gender?: string;
+  mobile?: number;
+}
+```
+
+#### Recording
+
+```ts
+interface StopRecordingResult {
+  failedUploads: string[];
+  totalFiles: number;
+}
+
+interface EndRecordingResult extends StopRecordingResult {
+  sessionEnded: boolean;
+  endSessionResponse?: EndSessionResponse;
+}
+
+interface RetryUploadResult {
+  retried: number;
+  succeeded: number;
+  stillFailed: string[];
+}
+
+interface PollOptions {
+  maxAttempts?: number;
+  intervalMs?: number;
+  onProgress?: (status: GetSessionStatusResponse) => void;
+  signal?: AbortSignal;
+}
+```
+
 ## Error Handling
 
 All public async methods return `SDKResult<T>` — errors are returned, not thrown:
