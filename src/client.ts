@@ -420,6 +420,22 @@ export class ScribeClient {
   // --- Reset ---
 
   /**
+   * Lightweight cleanup between back-to-back sessions.
+   *
+   * Stops any active recording, resets the recording pipeline (VAD, mic,
+   * buffers, worker), and clears the current session reference. Does NOT
+   * touch callbacks, discovery cache, transport, or initialization state —
+   * use `reset()` for a full teardown.
+   */
+  clearRecordingState(): void {
+    if (this.recordingManager.isRecording()) {
+      this.recordingManager.forceStop();
+    }
+    this.recordingManager.reset();
+    this.sessionManager.clearCurrentSession();
+  }
+
+  /**
    * Full reset — stops recording if active, clears all caches and state.
    */
   async reset(): Promise<void> {
