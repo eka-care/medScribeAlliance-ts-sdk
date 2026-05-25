@@ -76,6 +76,7 @@ export type {
   SessionEventType,
   SessionEventCreated,
   SessionEventEnded,
+  SessionEventDiscarded,
   SessionEventStatusUpdate,
   SessionEventPartialResult,
   ErrorEvent,

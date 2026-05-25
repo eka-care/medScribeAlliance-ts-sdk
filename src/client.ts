@@ -351,6 +351,12 @@ export class ScribeClient {
     this.recordingManager.reset();
     this.sessionManager.clearCurrentSession();
 
+    this.callbackRegistry.dispatch('onSessionEvent', {
+      type: 'discarded',
+      timestamp: new Date().toISOString(),
+      data: { sessionId: resolvedSessionId ?? null, reason: 'cancelled' },
+    });
+
     return this.updateSession(
       { user_status: 'cancelled', processing_status: 'cancelled' },
       resolvedSessionId

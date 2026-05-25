@@ -78,7 +78,12 @@ export type UploadEvent = UploadEventProgress | UploadEventFailed | UploadEventR
 
 // --- Session Events ---
 
-export type SessionEventType = 'created' | 'ended' | 'status_update' | 'partial_result';
+export type SessionEventType =
+  | 'created'
+  | 'ended'
+  | 'discarded'
+  | 'status_update'
+  | 'partial_result';
 
 export interface SessionEventCreated {
   type: 'created';
@@ -90,6 +95,12 @@ export interface SessionEventEnded {
   type: 'ended';
   timestamp: string;
   data: EndSessionResponse;
+}
+
+export interface SessionEventDiscarded {
+  type: 'discarded';
+  timestamp: string;
+  data: { sessionId: string | null; reason: 'cleared' | 'cancelled' | 'reset' };
 }
 
 export interface SessionEventStatusUpdate {
@@ -107,6 +118,7 @@ export interface SessionEventPartialResult {
 export type SessionEvent =
   | SessionEventCreated
   | SessionEventEnded
+  | SessionEventDiscarded
   | SessionEventStatusUpdate
   | SessionEventPartialResult;
 
