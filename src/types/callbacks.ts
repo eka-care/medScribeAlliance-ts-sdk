@@ -3,10 +3,19 @@
  */
 
 import { CreateSessionResponse, EndSessionResponse, GetSessionStatusResponse } from './session';
+import {
+  RecordingState,
+  AudioEventType,
+  UploadEventType,
+  SessionEventType,
+  ErrorEventType,
+  ErrorCode,
+  DiscardReason,
+} from '../constants';
 
 // --- Recording State ---
 
-export type RecordingState = 'started' | 'paused' | 'resumed' | 'ended';
+export type { RecordingState } from '../constants';
 
 export interface RecordingStateChangeEvent {
   type: RecordingState;
@@ -16,22 +25,22 @@ export interface RecordingStateChangeEvent {
 
 // --- Audio Events ---
 
-export type AudioEventType = 'user_speech' | 'silence_warning' | 'chunk_ready' | 'frame_processed';
+export type { AudioEventType } from '../constants';
 
 export interface AudioEventUserSpeech {
-  type: 'user_speech';
+  type: AudioEventType.USER_SPEECH;
   timestamp: string;
   data: { isSpeaking: boolean };
 }
 
 export interface AudioEventSilenceWarning {
-  type: 'silence_warning';
+  type: AudioEventType.SILENCE_WARNING;
   timestamp: string;
   data: { durationMs: number };
 }
 
 export interface AudioEventChunkReady {
-  type: 'chunk_ready';
+  type: AudioEventType.CHUNK_READY;
   timestamp: string;
   data: {
     chunkIndex: number;
@@ -41,7 +50,7 @@ export interface AudioEventChunkReady {
 }
 
 export interface AudioEventFrameProcessed {
-  type: 'frame_processed';
+  type: AudioEventType.FRAME_PROCESSED;
   timestamp: string;
   data: { isSpeech: number; notSpeech: number; frame: Float32Array; duration: number };
 }
@@ -54,22 +63,22 @@ export type AudioEvent =
 
 // --- Upload Events ---
 
-export type UploadEventType = 'progress' | 'failed' | 'retry';
+export type { UploadEventType } from '../constants';
 
 export interface UploadEventProgress {
-  type: 'progress';
+  type: UploadEventType.PROGRESS;
   timestamp: string;
   data: { successCount: number; totalCount: number };
 }
 
 export interface UploadEventFailed {
-  type: 'failed';
+  type: UploadEventType.FAILED;
   timestamp: string;
   data: { fileName: string; error: string };
 }
 
 export interface UploadEventRetry {
-  type: 'retry';
+  type: UploadEventType.RETRY;
   timestamp: string;
   data: { fileName: string; attempt: number };
 }
@@ -78,39 +87,34 @@ export type UploadEvent = UploadEventProgress | UploadEventFailed | UploadEventR
 
 // --- Session Events ---
 
-export type SessionEventType =
-  | 'created'
-  | 'ended'
-  | 'discarded'
-  | 'status_update'
-  | 'partial_result';
+export type { SessionEventType } from '../constants';
 
 export interface SessionEventCreated {
-  type: 'created';
+  type: SessionEventType.CREATED;
   timestamp: string;
   data: CreateSessionResponse;
 }
 
 export interface SessionEventEnded {
-  type: 'ended';
+  type: SessionEventType.ENDED;
   timestamp: string;
   data: EndSessionResponse;
 }
 
 export interface SessionEventDiscarded {
-  type: 'discarded';
+  type: SessionEventType.DISCARDED;
   timestamp: string;
-  data: { sessionId: string | null; reason: 'cleared' | 'cancelled' | 'reset' };
+  data: { sessionId: string | null; reason: DiscardReason };
 }
 
 export interface SessionEventStatusUpdate {
-  type: 'status_update';
+  type: SessionEventType.STATUS_UPDATE;
   timestamp: string;
   data: GetSessionStatusResponse;
 }
 
 export interface SessionEventPartialResult {
-  type: 'partial_result';
+  type: SessionEventType.PARTIAL_RESULT;
   timestamp: string;
   data: any;
 }
@@ -124,12 +128,12 @@ export type SessionEvent =
 
 // --- Error Events ---
 
-export type ErrorEventType = 'vad_error' | 'worker_error' | 'transport_error' | 'validation_error';
+export type { ErrorEventType } from '../constants';
 
 export interface ErrorEvent {
   type: ErrorEventType;
   timestamp: string;
-  error: { code: string; message: string; details?: any };
+  error: { code: ErrorCode; message: string; details?: any };
 }
 
 // --- Token Required ---

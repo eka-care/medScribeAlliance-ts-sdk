@@ -56,31 +56,26 @@ export type {
   RetryUploadResult,
   AudioChunkInfo,
 
-  // Callbacks
+  // Callbacks (enum types are exported as values from ./constants)
   CallbackMap,
   CallbackName,
-  RecordingState,
   RecordingStateChangeEvent,
   AudioEvent,
-  AudioEventType,
   AudioEventUserSpeech,
   AudioEventSilenceWarning,
   AudioEventChunkReady,
   AudioEventFrameProcessed,
   UploadEvent,
-  UploadEventType,
   UploadEventProgress,
   UploadEventFailed,
   UploadEventRetry,
   SessionEvent,
-  SessionEventType,
   SessionEventCreated,
   SessionEventEnded,
   SessionEventDiscarded,
   SessionEventStatusUpdate,
   SessionEventPartialResult,
   ErrorEvent,
-  ErrorEventType,
   TokenRequiredEvent,
 
   // Worker
@@ -103,6 +98,12 @@ export {
   TransportMode,
   ErrorCode,
   HttpStatus,
+  RecordingState,
+  AudioEventType,
+  UploadEventType,
+  SessionEventType,
+  ErrorEventType,
+  DiscardReason,
 } from './constants';
 
 // --- Errors ---

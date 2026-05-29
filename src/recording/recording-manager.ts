@@ -41,6 +41,13 @@ import { ChunkedRecorder } from './chunked-recorder';
 import { SingleRecorder } from './single-recorder';
 import type { WorkerManagerConfig } from '../worker/worker-manager';
 import { ScribeError } from '../utils/errors';
+import {
+  RecordingState,
+  SessionEventType,
+  ErrorEventType,
+  ErrorCode,
+  UploadEventType,
+} from '../constants';
 
 export interface RecordingManagerConfig {
   workerConfig?: WorkerManagerConfig;
@@ -138,7 +145,7 @@ export class RecordingManager {
         session = createResult.data;
         createSessionHttpStatus = createResult.httpStatus;
       } catch (error) {
-        this.dispatchStartError('transport_error', 'session_creation_failed', error);
+        this.dispatchStartError(ErrorEventType.TRANSPORT_ERROR, ErrorCode.SESSION_CREATION_FAILED, error);
         throw error;
       }
 
@@ -146,7 +153,7 @@ export class RecordingManager {
 
       // Dispatch session created event
       this.callbackRegistry.dispatch('onSessionEvent', {
-        type: 'created',
+        type: SessionEventType.CREATED,
         timestamp: new Date().toISOString(),
         data: session,
       });
@@ -166,7 +173,7 @@ export class RecordingManager {
         this.recorder.initialize(session, recorderConfig);
       } catch (error) {
         this.cleanupRecordingState();
-        this.dispatchStartError('validation_error', 'recorder_init_failed', error);
+        this.dispatchStartError(ErrorEventType.VALIDATION_ERROR, ErrorCode.RECORDER_INIT_FAILED, error);
         throw error;
       }
 
@@ -180,7 +187,7 @@ export class RecordingManager {
         await this.recorder.start(options.deviceId);
       } catch (error) {
         this.cleanupRecordingState();
-        this.dispatchStartError('vad_error', 'vad_start_failed', error);
+        this.dispatchStartError(ErrorEventType.VAD_ERROR, ErrorCode.VAD_START_FAILED, error);
         throw error;
       }
 
@@ -188,7 +195,7 @@ export class RecordingManager {
 
       // Dispatch recording state change
       this.callbackRegistry.dispatch('onRecordingStateChange', {
-        type: 'started',
+        type: RecordingState.STARTED,
         timestamp: new Date().toISOString(),
       });
 
@@ -248,7 +255,7 @@ export class RecordingManager {
         this.recorder.initialize(session, recorderConfig);
       } catch (error) {
         this.cleanupRecordingState();
-        this.dispatchStartError('validation_error', 'recorder_init_failed', error);
+        this.dispatchStartError(ErrorEventType.VALIDATION_ERROR, ErrorCode.RECORDER_INIT_FAILED, error);
         throw error;
       }
 
@@ -262,7 +269,7 @@ export class RecordingManager {
         await this.recorder.start(options?.deviceId);
       } catch (error) {
         this.cleanupRecordingState();
-        this.dispatchStartError('vad_error', 'vad_start_failed', error);
+        this.dispatchStartError(ErrorEventType.VAD_ERROR, ErrorCode.VAD_START_FAILED, error);
         throw error;
       }
 
@@ -270,7 +277,7 @@ export class RecordingManager {
 
       // Dispatch recording state change
       this.callbackRegistry.dispatch('onRecordingStateChange', {
-        type: 'started',
+        type: RecordingState.STARTED,
         timestamp: new Date().toISOString(),
       });
 
@@ -297,7 +304,7 @@ export class RecordingManager {
       this.recorder.pause();
 
       this.callbackRegistry.dispatch('onRecordingStateChange', {
-        type: 'paused',
+        type: RecordingState.PAUSED,
         timestamp: new Date().toISOString(),
       });
 
@@ -319,7 +326,7 @@ export class RecordingManager {
       this.recorder.resume();
 
       this.callbackRegistry.dispatch('onRecordingStateChange', {
-        type: 'resumed',
+        type: RecordingState.RESUMED,
         timestamp: new Date().toISOString(),
       });
 
@@ -361,10 +368,10 @@ export class RecordingManager {
         } catch (retryError) {
           console.error('[ScribeSDK] Internal retry pass failed:', retryError);
           this.callbackRegistry.dispatch('onError', {
-            type: 'transport_error',
+            type: ErrorEventType.TRANSPORT_ERROR,
             timestamp: new Date().toISOString(),
             error: {
-              code: 'internal_retry_failed',
+              code: ErrorCode.INTERNAL_RETRY_FAILED,
               message:
                 retryError instanceof Error ? retryError.message : 'Retry pass failed',
             },
@@ -394,7 +401,7 @@ export class RecordingManager {
 
       // 5. Dispatch recording ended
       this.callbackRegistry.dispatch('onRecordingStateChange', {
-        type: 'ended',
+        type: RecordingState.ENDED,
         timestamp: new Date().toISOString(),
         data: result,
       });
@@ -413,10 +420,10 @@ export class RecordingManager {
 
       // Dispatch error so consumers know the stop encountered a problem
       this.callbackRegistry.dispatch('onError', {
-        type: 'transport_error',
+        type: ErrorEventType.TRANSPORT_ERROR,
         timestamp: new Date().toISOString(),
         error: {
-          code: 'stop_failed',
+          code: ErrorCode.STOP_FAILED,
           message: error instanceof Error ? error.message : 'Failed to stop recording',
         },
       });
@@ -464,7 +471,7 @@ export class RecordingManager {
       );
 
       this.callbackRegistry.dispatch('onSessionEvent', {
-        type: 'ended',
+        type: SessionEventType.ENDED,
         timestamp: new Date().toISOString(),
         data: endResult.data,
       });
@@ -473,10 +480,10 @@ export class RecordingManager {
     } catch (error) {
       console.error('[ScribeSDK] Failed to end session:', error);
       this.callbackRegistry.dispatch('onError', {
-        type: 'transport_error',
+        type: ErrorEventType.TRANSPORT_ERROR,
         timestamp: new Date().toISOString(),
         error: {
-          code: 'session_end_failed',
+          code: ErrorCode.SESSION_END_FAILED,
           message: error instanceof Error ? error.message : 'Failed to end session',
         },
       });
@@ -502,12 +509,22 @@ export class RecordingManager {
       // Best-effort stop
     } finally {
       this.callbackRegistry.dispatch('onRecordingStateChange', {
-        type: 'ended',
+        type: RecordingState.ENDED,
         timestamp: new Date().toISOString(),
         data: { failedUploads: [], totalFiles: 0 },
       });
 
       this.cleanupRecordingState();
+    }
+  }
+
+  /**
+   * Override the session chunk limit, allowing unlimited chunks.
+   * Only applies to ChunkedRecorder.
+   */
+  forceAllowMoreChunks(): void {
+    if (this.recorder && this.recorder instanceof ChunkedRecorder) {
+      this.recorder.forceAllowMoreChunks();
     }
   }
 
@@ -613,7 +630,7 @@ export class RecordingManager {
         succeeded++;
 
         this.callbackRegistry.dispatch('onUploadEvent', {
-          type: 'progress',
+          type: UploadEventType.PROGRESS,
           timestamp: new Date().toISOString(),
           data: { successCount: succeeded, totalCount: retried },
         });
@@ -625,7 +642,7 @@ export class RecordingManager {
         stillFailed.push(chunk.fileName);
 
         this.callbackRegistry.dispatch('onUploadEvent', {
-          type: 'failed',
+          type: UploadEventType.FAILED,
           timestamp: new Date().toISOString(),
           data: {
             fileName: chunk.fileName,
@@ -711,8 +728,8 @@ export class RecordingManager {
    * Dispatch an error event for a specific start() step failure.
    */
   private dispatchStartError(
-    type: 'transport_error' | 'vad_error' | 'validation_error' | 'worker_error',
-    code: string,
+    type: ErrorEventType,
+    code: ErrorCode,
     error: unknown
   ): void {
     this.callbackRegistry.dispatch('onError', {

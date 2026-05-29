@@ -25,6 +25,8 @@
 import { CallbackRegistry } from '../callbacks/callback-registry';
 import { AudioFileManager } from '../audio/audio-file-manager';
 import { encodeToMp3 } from '../audio/mp3-encoder';
+import { MAX_CHUNK_LENGTH, CHUNK_LENGTH_TOLERANCE, SAMPLING_RATE } from '../audio/constants';
+import { ErrorEventType, ErrorCode, AudioEventType, UploadEventType } from '../constants';
 import type { ITransport } from '../types/transport';
 import type { MainToWorkerMessage, WorkerToMainMessage } from '../types/worker';
 
@@ -111,6 +113,27 @@ export class WorkerManager {
    * @param chunkIndex - Index in AudioFileManager's chunk list
    */
   compressAndUpload(audioFrames: Float32Array, fileName: string, chunkIndex: number): void {
+    // Validate chunk length before upload
+    const durationInSeconds = audioFrames.length / SAMPLING_RATE;
+    if (durationInSeconds > MAX_CHUNK_LENGTH + CHUNK_LENGTH_TOLERANCE) {
+      this.fileManager.markFailure(
+        chunkIndex,
+        new Blob(),
+        `Chunk exceeds maximum length: ${durationInSeconds.toFixed(1)}s > ${MAX_CHUNK_LENGTH}s`
+      );
+      this.callbackRegistry.dispatch('onError', {
+        type: ErrorEventType.VALIDATION_ERROR,
+        timestamp: new Date().toISOString(),
+        error: {
+          code: ErrorCode.CHUNK_LENGTH_EXCEEDED,
+          message: `Audio chunk "${fileName}" exceeds maximum length of ${MAX_CHUNK_LENGTH}s (actual: ${durationInSeconds.toFixed(
+            1
+          )}s). Upload skipped.`,
+        },
+      });
+      return;
+    }
+
     if (this.useWorker && this.port) {
       this.compressAndUploadViaWorker(audioFrames, fileName);
     } else {
@@ -195,10 +218,10 @@ export class WorkerManager {
     } catch (error) {
       console.error('[ScribeSDK] Failed to post message to worker:', error);
       this.callbackRegistry.dispatch('onError', {
-        type: 'worker_error',
+        type: ErrorEventType.WORKER_ERROR,
         timestamp: new Date().toISOString(),
         error: {
-          code: 'worker_post_failed',
+          code: ErrorCode.WORKER_POST_FAILED,
           message: `Failed to send message to worker: ${
             error instanceof Error ? error.message : 'Unknown'
           }`,
@@ -215,7 +238,7 @@ export class WorkerManager {
       case 'chunk_encoded': {
         const chunkIndex = this.findChunkIndex(message.fileName);
         this.callbackRegistry.dispatch('onAudioEvent', {
-          type: 'chunk_ready',
+          type: AudioEventType.CHUNK_READY,
           timestamp: new Date().toISOString(),
           data: {
             chunkIndex,
@@ -241,7 +264,7 @@ export class WorkerManager {
           this.fileManager.markFailure(chunkIndex, message.blob ?? new Blob(), message.error);
         }
         this.callbackRegistry.dispatch('onUploadEvent', {
-          type: 'failed',
+          type: UploadEventType.FAILED,
           timestamp: new Date().toISOString(),
           data: { fileName: message.fileName, error: message.error },
         });
@@ -296,7 +319,7 @@ export class WorkerManager {
       if (!encoded) {
         this.fileManager.markFailure(chunkIndex, new Blob(), 'MP3 encoding failed');
         this.callbackRegistry.dispatch('onUploadEvent', {
-          type: 'failed',
+          type: UploadEventType.FAILED,
           timestamp: new Date().toISOString(),
           data: { fileName, error: 'MP3 encoding failed' },
         });
@@ -308,7 +331,7 @@ export class WorkerManager {
       // 2. Chunk is now encoded — dispatch chunk_ready with the MP3 bytes
       //    so the consumer can offer download / local playback.
       this.callbackRegistry.dispatch('onAudioEvent', {
-        type: 'chunk_ready',
+        type: AudioEventType.CHUNK_READY,
         timestamp: new Date().toISOString(),
         data: { chunkIndex, fileName, chunkData: encoded.chunks },
       });
@@ -336,7 +359,7 @@ export class WorkerManager {
         error?.message ?? 'Upload failed'
       );
       this.callbackRegistry.dispatch('onUploadEvent', {
-        type: 'failed',
+        type: UploadEventType.FAILED,
         timestamp: new Date().toISOString(),
         data: { fileName, error: error?.message ?? 'Upload failed' },
       });
@@ -362,7 +385,7 @@ export class WorkerManager {
     const totalCount = this.fileManager.getChunkCount();
 
     this.callbackRegistry.dispatch('onUploadEvent', {
-      type: 'progress',
+      type: UploadEventType.PROGRESS,
       timestamp: new Date().toISOString(),
       data: { successCount, totalCount },
     });
