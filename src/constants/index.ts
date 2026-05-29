@@ -46,6 +46,49 @@ export enum TransportMode {
   IPC = 'ipc',
 }
 
+// --- Callback event type enums ---
+
+export enum RecordingState {
+  STARTED = 'started',
+  PAUSED = 'paused',
+  RESUMED = 'resumed',
+  ENDED = 'ended',
+}
+
+export enum AudioEventType {
+  USER_SPEECH = 'user_speech',
+  SILENCE_WARNING = 'silence_warning',
+  CHUNK_READY = 'chunk_ready',
+  FRAME_PROCESSED = 'frame_processed',
+}
+
+export enum UploadEventType {
+  PROGRESS = 'progress',
+  FAILED = 'failed',
+  RETRY = 'retry',
+}
+
+export enum SessionEventType {
+  CREATED = 'created',
+  ENDED = 'ended',
+  DISCARDED = 'discarded',
+  STATUS_UPDATE = 'status_update',
+  PARTIAL_RESULT = 'partial_result',
+}
+
+export enum ErrorEventType {
+  VAD_ERROR = 'vad_error',
+  WORKER_ERROR = 'worker_error',
+  TRANSPORT_ERROR = 'transport_error',
+  VALIDATION_ERROR = 'validation_error',
+}
+
+export enum DiscardReason {
+  CLEARED = 'cleared',
+  CANCELLED = 'cancelled',
+  RESET = 'reset',
+}
+
 export enum ErrorCode {
   // Authentication
   AUTHENTICATION_FAILED = 'authentication_failed',
@@ -84,6 +127,17 @@ export enum ErrorCode {
   WORKER_ERROR = 'worker_error',
   UPLOAD_FAILED = 'upload_failed',
   VAD_ERROR = 'vad_error',
+  CHUNK_LENGTH_EXCEEDED = 'chunk_length_exceeded',
+  CHUNK_LIMIT_REACHED = 'chunk_limit_reached',
+  CHUNK_CREATION_FAILED = 'chunk_creation_failed',
+  WORKER_POST_FAILED = 'worker_post_failed',
+  SESSION_CREATION_FAILED = 'session_creation_failed',
+  RECORDER_INIT_FAILED = 'recorder_init_failed',
+  RECORDER_START_FAILED = 'recorder_start_failed',
+  VAD_START_FAILED = 'vad_start_failed',
+  STOP_FAILED = 'stop_failed',
+  INTERNAL_RETRY_FAILED = 'internal_retry_failed',
+  SESSION_END_FAILED = 'session_end_failed',
 }
 
 export enum HttpStatus {

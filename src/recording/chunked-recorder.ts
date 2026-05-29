@@ -46,7 +46,9 @@ import {
   MAX_CHUNK_LENGTH,
   SAMPLING_RATE,
   AUDIO_BUFFER_SIZE_IN_S,
+  MAX_CHUNKS_PER_SESSION,
 } from '../audio/constants';
+import { ErrorEventType, ErrorCode } from '../constants';
 
 export class ChunkedRecorder implements IRecorder {
   private vadClient: VadClient;
@@ -57,6 +59,8 @@ export class ChunkedRecorder implements IRecorder {
 
   private _isPaused: boolean = false;
   private initialized: boolean = false;
+  private chunkLimitReached: boolean = false;
+  private chunkLimitOverridden: boolean = false;
 
   constructor(
     callbackRegistry: CallbackRegistry,
@@ -194,11 +198,22 @@ export class ChunkedRecorder implements IRecorder {
    */
   reset(): void {
     this._isPaused = false;
+    this.chunkLimitReached = false;
+    this.chunkLimitOverridden = false;
     this.vadClient.reset();
     this.fileManager.resetInstance();
     this.bufferManager.resetInstance();
     this.workerManager.destroy();
     this.initialized = false;
+  }
+
+  /**
+   * Override the session chunk limit, allowing unlimited chunks to be created.
+   * Call this after receiving a 'chunk_limit_reached' error to resume chunk creation.
+   */
+  forceAllowMoreChunks(): void {
+    this.chunkLimitOverridden = true;
+    this.chunkLimitReached = false;
   }
 
   /**
@@ -250,6 +265,26 @@ export class ChunkedRecorder implements IRecorder {
    */
   private handleClipPoint(): void {
     try {
+      // Check chunk limit before creating a new chunk
+      if (!this.chunkLimitOverridden && this.fileManager.getChunkCount() >= MAX_CHUNKS_PER_SESSION) {
+        // Reset buffer to prevent unbounded memory growth
+        this.bufferManager.resetBufferState();
+
+        // Fire callback only on the first time the limit is hit
+        if (!this.chunkLimitReached) {
+          this.chunkLimitReached = true;
+          this.callbackRegistry.dispatch('onError', {
+            type: ErrorEventType.VALIDATION_ERROR,
+            timestamp: new Date().toISOString(),
+            error: {
+              code: ErrorCode.CHUNK_LIMIT_REACHED,
+              message: `Maximum chunk limit of ${MAX_CHUNKS_PER_SESSION} reached. Call forceAllowMoreChunks() to continue uploading.`,
+            },
+          });
+        }
+        return;
+      }
+
       const audioFrames = this.bufferManager.getAudioData();
       if (audioFrames.length === 0) {
         return;
@@ -284,10 +319,10 @@ export class ChunkedRecorder implements IRecorder {
     } catch (error) {
       console.error('[ScribeSDK] Error handling clip point:', error);
       this.callbackRegistry.dispatch('onError', {
-        type: 'worker_error',
+        type: ErrorEventType.WORKER_ERROR,
         timestamp: new Date().toISOString(),
         error: {
-          code: 'chunk_creation_failed',
+          code: ErrorCode.CHUNK_CREATION_FAILED,
           message: error instanceof Error ? error.message : 'Failed to create audio chunk',
         },
       });

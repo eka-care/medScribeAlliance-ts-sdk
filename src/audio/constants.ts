@@ -14,6 +14,15 @@ export const PREF_CHUNK_LENGTH = 10;
 export const DESP_CHUNK_LENGTH = 20;
 export const MAX_CHUNK_LENGTH = 25;
 
+// Tolerance for chunk length validation during upload.
+// VAD clips at frame granularity (FRAME_SIZE samples = ~64ms), so chunks
+// can slightly exceed MAX_CHUNK_LENGTH. This tolerance prevents rejecting
+// legitimate VAD-produced chunks.
+export const CHUNK_LENGTH_TOLERANCE = 2;
+
+// Session-level chunk limit
+export const MAX_CHUNKS_PER_SESSION = 500;
+
 // Audio encoding
 export const FRAME_SIZE = 1024;
 export const SAMPLING_RATE = 16000;

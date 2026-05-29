@@ -17,6 +17,7 @@
 
 import { MicVAD } from '@ricky0123/vad-web';
 import { CallbackRegistry } from '../callbacks/callback-registry';
+import { AudioEventType } from '../constants';
 import {
   FRAME_SIZE,
   SHORT_SILENCE_THRESHOLD,
@@ -123,14 +124,14 @@ export class VadClient {
         },
         onSpeechStart: () => {
           this.callbackRegistry.dispatch('onAudioEvent', {
-            type: 'user_speech',
+            type: AudioEventType.USER_SPEECH,
             timestamp: new Date().toISOString(),
             data: { isSpeaking: true },
           });
         },
         onSpeechEnd: () => {
           this.callbackRegistry.dispatch('onAudioEvent', {
-            type: 'user_speech',
+            type: AudioEventType.USER_SPEECH,
             timestamp: new Date().toISOString(),
             data: { isSpeaking: false },
           });
@@ -179,6 +180,11 @@ export class VadClient {
    * Destroy the MicVAD instance and release the mic stream.
    */
   destroy(): void {
+    // Stop mic tracks first — synchronous and immediate.
+    // This ensures the browser releases the mic indicator regardless
+    // of whether MicVAD's internal cleanup completes synchronously.
+    this.stopMicStream();
+
     try {
       if (this.micVad && typeof this.micVad.destroy === 'function') {
         this.micVad.destroy();
@@ -186,7 +192,6 @@ export class VadClient {
     } catch (error) {
       console.error('[ScribeSDK] Error destroying VAD:', error);
     }
-    this.stopMicStream();
     this.isRecording = false;
   }
 
@@ -246,7 +251,7 @@ export class VadClient {
     try {
       // Dispatch frame_processed audio event via CallbackRegistry
       this.callbackRegistry.dispatch('onAudioEvent', {
-        type: 'frame_processed',
+        type: AudioEventType.FRAME_PROCESSED,
         timestamp: new Date().toISOString(),
         data: {
           isSpeech: probabilities.isSpeech,
@@ -359,7 +364,7 @@ export class VadClient {
             now - this.lastWarningTime >= SILENCE_WARNING_COOLDOWN_MS
           ) {
             this.callbackRegistry.dispatch('onAudioEvent', {
-              type: 'silence_warning',
+              type: AudioEventType.SILENCE_WARNING,
               timestamp: new Date().toISOString(),
               data: { durationMs: silenceDuration },
             });

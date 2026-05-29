@@ -60,29 +60,24 @@ export type {
   UploadProgressCallback,
 } from './recording';
 
-// Callbacks
+// Callbacks (enum types are exported as values from ../constants)
 export type {
-  RecordingState,
   RecordingStateChangeEvent,
-  AudioEventType,
   AudioEvent,
   AudioEventUserSpeech,
   AudioEventSilenceWarning,
   AudioEventChunkReady,
   AudioEventFrameProcessed,
-  UploadEventType,
   UploadEvent,
   UploadEventProgress,
   UploadEventFailed,
   UploadEventRetry,
-  SessionEventType,
   SessionEvent,
   SessionEventCreated,
   SessionEventEnded,
   SessionEventDiscarded,
   SessionEventStatusUpdate,
   SessionEventPartialResult,
-  ErrorEventType,
   ErrorEvent,
   TokenRequiredEvent,
   CallbackMap,

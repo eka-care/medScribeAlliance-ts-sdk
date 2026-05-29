@@ -33,7 +33,7 @@ import type {
   PatchSessionResponse,
   ProcessTemplateResponse,
 } from './types';
-import { TransportMode } from './constants';
+import { TransportMode, SessionEventType, DiscardReason } from './constants';
 import { ScribeError, ValidationError } from './utils/errors';
 import { CallbackRegistry } from './callbacks/callback-registry';
 import { Validator } from './validation/validator';
@@ -233,6 +233,14 @@ export class ScribeClient {
     return this.recordingManager.isPaused();
   }
 
+  /**
+   * Override the 500-chunk session limit, allowing unlimited chunks.
+   * Call this after receiving a 'chunk_limit_reached' error to resume chunk uploads.
+   */
+  forceAllowMoreChunks(): void {
+    this.recordingManager.forceAllowMoreChunks();
+  }
+
   // --- Session ---
 
   /**
@@ -265,7 +273,7 @@ export class ScribeClient {
       }
 
       this.callbackRegistry.dispatch('onSessionEvent', {
-        type: 'ended',
+        type: SessionEventType.ENDED,
         timestamp: new Date().toISOString(),
         data: result.data,
       });
@@ -352,9 +360,9 @@ export class ScribeClient {
     this.sessionManager.clearCurrentSession();
 
     this.callbackRegistry.dispatch('onSessionEvent', {
-      type: 'discarded',
+      type: SessionEventType.DISCARDED,
       timestamp: new Date().toISOString(),
-      data: { sessionId: resolvedSessionId ?? null, reason: 'cancelled' },
+      data: { sessionId: resolvedSessionId ?? null, reason: DiscardReason.CANCELLED },
     });
 
     return this.updateSession(

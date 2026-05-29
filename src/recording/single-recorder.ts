@@ -12,6 +12,7 @@ import type { IRecorder, RecorderConfig, StopRecordingResult } from '../types/re
 import type { CreateSessionResponse } from '../types/session';
 import type { ITransport } from '../types/transport';
 import { CallbackRegistry } from '../callbacks/callback-registry';
+import { ErrorEventType, ErrorCode, UploadEventType } from '../constants';
 
 export class SingleRecorder implements IRecorder {
   private mediaRecorder: MediaRecorder | null = null;
@@ -63,10 +64,10 @@ export class SingleRecorder implements IRecorder {
       this._isPaused = false;
     } catch (error) {
       this.callbackRegistry.dispatch('onError', {
-        type: 'vad_error',
+        type: ErrorEventType.VAD_ERROR,
         timestamp: new Date().toISOString(),
         error: {
-          code: 'recorder_start_failed',
+          code: ErrorCode.RECORDER_START_FAILED,
           message: error instanceof Error ? error.message : 'Failed to start MediaRecorder',
         },
       });
@@ -122,7 +123,7 @@ export class SingleRecorder implements IRecorder {
         });
 
         this.callbackRegistry.dispatch('onUploadEvent', {
-          type: 'progress',
+          type: UploadEventType.PROGRESS,
           timestamp: new Date().toISOString(),
           data: { successCount: 1, totalCount: 1 },
         });
@@ -133,7 +134,7 @@ export class SingleRecorder implements IRecorder {
         this.failedUploadData = { fileName, blob: audioBlob };
 
         this.callbackRegistry.dispatch('onUploadEvent', {
-          type: 'failed',
+          type: UploadEventType.FAILED,
           timestamp: new Date().toISOString(),
           data: { fileName, error: error?.message ?? 'Upload failed' },
         });
