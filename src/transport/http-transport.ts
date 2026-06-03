@@ -3,7 +3,7 @@
  *
  * - Adds auth headers (API key or Bearer token)
  * - JSON requests for API calls, raw blob for uploads
- * - Retry logic via retryWithBackoff (1 initial + 3 retries, 2s delay, skip 4xx)
+ * - Retry logic via retryWithBackoff (1 initial + 2 retries = 3 attempts, 2s delay, skip 4xx)
  * - Maps HTTP errors to typed ScribeError subclasses
  * - Auto-retries on 401 after token refresh (deduplicated across concurrent requests)
  */
@@ -49,7 +49,7 @@ export class HttpTransport implements ITransport {
     try {
       const result = await retryWithBackoff(
         () => this.executeRequest<T>(config),
-        this.getRetryOptions()
+        this.getRetryOptions(config)
       );
       return result;
     } catch (error) {
@@ -288,8 +288,9 @@ export class HttpTransport implements ITransport {
     // In-flight fetches will resolve/reject naturally.
   }
 
-  private getRetryOptions(): RetryOptions {
+  private getRetryOptions(config: TransportRequest): RetryOptions {
     return {
+      maxRetries: config.maxRetries,
       onRetry: (attempt, error) => {
         if (this.debug) {
           console.log(`[ScribeSDK] Retry attempt ${attempt}:`, error.message);

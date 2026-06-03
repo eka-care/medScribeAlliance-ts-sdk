@@ -145,7 +145,11 @@ export class RecordingManager {
         session = createResult.data;
         createSessionHttpStatus = createResult.httpStatus;
       } catch (error) {
-        this.dispatchStartError(ErrorEventType.TRANSPORT_ERROR, ErrorCode.SESSION_CREATION_FAILED, error);
+        this.dispatchStartError(
+          ErrorEventType.TRANSPORT_ERROR,
+          ErrorCode.SESSION_CREATION_FAILED,
+          error
+        );
         throw error;
       }
 
@@ -173,7 +177,11 @@ export class RecordingManager {
         this.recorder.initialize(session, recorderConfig);
       } catch (error) {
         this.cleanupRecordingState();
-        this.dispatchStartError(ErrorEventType.VALIDATION_ERROR, ErrorCode.RECORDER_INIT_FAILED, error);
+        this.dispatchStartError(
+          ErrorEventType.VALIDATION_ERROR,
+          ErrorCode.RECORDER_INIT_FAILED,
+          error
+        );
         throw error;
       }
 
@@ -255,7 +263,11 @@ export class RecordingManager {
         this.recorder.initialize(session, recorderConfig);
       } catch (error) {
         this.cleanupRecordingState();
-        this.dispatchStartError(ErrorEventType.VALIDATION_ERROR, ErrorCode.RECORDER_INIT_FAILED, error);
+        this.dispatchStartError(
+          ErrorEventType.VALIDATION_ERROR,
+          ErrorCode.RECORDER_INIT_FAILED,
+          error
+        );
         throw error;
       }
 
@@ -336,7 +348,6 @@ export class RecordingManager {
     }
   }
 
-
   async stop(): Promise<ApiCallResult<EndRecordingResult>> {
     if (!this.recorder || !this._isRecording) {
       return {
@@ -372,8 +383,7 @@ export class RecordingManager {
             timestamp: new Date().toISOString(),
             error: {
               code: ErrorCode.INTERNAL_RETRY_FAILED,
-              message:
-                retryError instanceof Error ? retryError.message : 'Retry pass failed',
+              message: retryError instanceof Error ? retryError.message : 'Retry pass failed',
             },
           });
         }
@@ -387,10 +397,7 @@ export class RecordingManager {
 
       // 4. End session ONLY if every chunk uploaded successfully.
       if (currentFailedUploads.length === 0 && this.activeSession) {
-        const finalize = await this.finalizeSession(
-          stopResult.totalFiles,
-          stopResult.totalFiles
-        );
+        const finalize = await this.finalizeSession(stopResult.totalFiles, stopResult.totalFiles);
         if (finalize) {
           result.sessionEnded = true;
           result.endSessionResponse = finalize.data;
@@ -625,6 +632,7 @@ export class RecordingManager {
           url: fullUrl,
           isUpload: true,
           uploadBlob: chunk.blob,
+          maxRetries: 0,
         });
 
         succeeded++;
@@ -660,8 +668,8 @@ export class RecordingManager {
     if (stillFailed.length === 0) {
       this.retryContext = null;
     } else {
-      this.retryContext.failedChunks = failedChunks.filter(
-        (chunk) => stillFailed.includes(chunk.fileName)
+      this.retryContext.failedChunks = failedChunks.filter((chunk) =>
+        stillFailed.includes(chunk.fileName)
       );
     }
 
@@ -727,11 +735,7 @@ export class RecordingManager {
   /**
    * Dispatch an error event for a specific start() step failure.
    */
-  private dispatchStartError(
-    type: ErrorEventType,
-    code: ErrorCode,
-    error: unknown
-  ): void {
+  private dispatchStartError(type: ErrorEventType, code: ErrorCode, error: unknown): void {
     this.callbackRegistry.dispatch('onError', {
       type,
       timestamp: new Date().toISOString(),
@@ -775,9 +779,7 @@ export class RecordingManager {
     };
 
     if (this.config.debug) {
-      console.log(
-        `[ScribeSDK] Preserved ${failedChunks.length} failed uploads for retry`
-      );
+      console.log(`[ScribeSDK] Preserved ${failedChunks.length} failed uploads for retry`);
     }
   }
 

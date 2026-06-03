@@ -158,7 +158,9 @@ export enum HttpStatus {
 
 // --- Retry defaults ---
 
-export const DEFAULT_MAX_RETRIES = 3;
+// Number of retries after the initial attempt.
+// Total attempts per upload = 1 (initial) + DEFAULT_MAX_RETRIES = 3.
+export const DEFAULT_MAX_RETRIES = 2;
 export const DEFAULT_RETRY_DELAY_MS = 2000;
 
 // --- Polling defaults ---

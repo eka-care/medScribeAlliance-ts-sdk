@@ -21,7 +21,10 @@
 import { encodeToMp3 } from '../audio/mp3-encoder';
 import type { MainToWorkerMessage, WorkerToMainMessage } from '../types/worker';
 
-const DEFAULT_MAX_RETRIES = 3;
+// Number of retries after the initial attempt.
+// Total attempts per upload = 1 (initial) + DEFAULT_MAX_RETRIES = 3.
+// Kept in sync with DEFAULT_MAX_RETRIES in ../constants (workers can't share the import).
+const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_RETRY_DELAY_MS = 2000;
 const TOKEN_UPDATE_TIMEOUT_MS = 10_000;
 

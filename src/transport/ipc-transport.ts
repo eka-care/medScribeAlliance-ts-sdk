@@ -76,7 +76,7 @@ export class IpcTransport implements ITransport {
     try {
       const result = await retryWithBackoff(
         () => this.executeRequest<T>(config),
-        this.getRetryOptions()
+        this.getRetryOptions(config)
       );
       return result;
     } catch (error) {
@@ -345,8 +345,9 @@ export class IpcTransport implements ITransport {
     return btoa(binary);
   }
 
-  private getRetryOptions(): RetryOptions {
+  private getRetryOptions(config: TransportRequest): RetryOptions {
     return {
+      maxRetries: config.maxRetries,
       onRetry: (attempt, error) => {
         if (this.debug) {
           console.log(`[ScribeSDK] IPC Retry attempt ${attempt}:`, error.message);

@@ -11,6 +11,7 @@ export interface TransportRequest {
   uploadBlob?: Blob;
   /** Additional HTTP status codes to treat as success (not throw). */
   acceptStatuses?: number[];
+  maxRetries?: number;
 }
 
 export interface TransportResponse<T = any> {
