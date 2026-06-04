@@ -261,7 +261,11 @@ export class WorkerManager {
       case 'upload_failed': {
         const chunkIndex = this.findChunkIndex(message.fileName);
         if (chunkIndex >= 0) {
-          this.fileManager.markFailure(chunkIndex, message.blob ?? new Blob(), message.error);
+          const retryBlob =
+            message.chunkData && message.chunkData.length > 0
+              ? new Blob(message.chunkData as BlobPart[], { type: 'audio/mp3' })
+              : new Blob();
+          this.fileManager.markFailure(chunkIndex, retryBlob, message.error);
         }
         this.callbackRegistry.dispatch('onUploadEvent', {
           type: UploadEventType.FAILED,

@@ -222,7 +222,9 @@ async function handleCompressAndUpload(
         type: 'upload_failed',
         fileName,
         error: result.error ?? 'Upload failed after retries',
-        blob: encoded.blob,
+        // Send raw bytes, not the worker-owned Blob — the main thread rebuilds
+        // a Blob it owns so the retry read can't fail with "Could not get blob data".
+        chunkData: encoded.chunks,
       });
     }
   } catch (error: any) {
