@@ -12,10 +12,7 @@ import * as z from 'zod';
 // --- Request schemas ---
 
 export const CreateSessionRequestSchema = z.object({
-  templates: z
-    .array(z.string())
-    .min(1, 'templates must contain at least one item')
-    .max(2, 'templates cannot have more than 2 items'),
+  templates: z.array(z.string()).max(2, 'templates cannot have more than 2 items'),
   upload_type: z.string().min(1, 'upload_type is required'),
   communication_protocol: z.string().min(1, 'communication_protocol is required'),
   model: z.string().optional(),

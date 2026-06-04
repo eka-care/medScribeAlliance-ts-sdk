@@ -13,7 +13,7 @@ export interface PatientDetails {
 }
 
 export interface CreateSessionRequest {
-  templates: string[];
+  templates: string[] | [];
   model?: string;
   language_hint?: string[];
   transcript_language?: string;
