@@ -5,7 +5,7 @@
 import { CreateSessionResponse, EndSessionResponse, PatientDetails } from './session';
 
 export interface RecordingOptions {
-  templates: string[];
+  templates: string[] | [];
   model?: string;
   languageHint?: string[];
   transcriptLanguage?: string;
