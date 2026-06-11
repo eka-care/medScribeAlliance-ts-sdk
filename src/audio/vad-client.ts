@@ -192,6 +192,7 @@ export class VadClient {
     } catch (error) {
       console.error('[ScribeSDK] Error destroying VAD:', error);
     }
+    this.micVad = null;
     this.isRecording = false;
   }
 
