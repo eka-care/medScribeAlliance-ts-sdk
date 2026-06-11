@@ -301,9 +301,13 @@ export class SessionManager {
 
       const maxAttempts = options?.maxAttempts ?? DEFAULT_POLL_MAX_ATTEMPTS;
       const intervalMs = options?.intervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+      const timeoutMs = options?.timeoutMs;
+      const startTime = Date.now();
+      const deadline =
+        timeoutMs !== undefined && timeoutMs > 0 ? startTime + timeoutMs : undefined;
 
       if (this.debug) {
-        console.log('[ScribeSDK] Polling for completion:', id, { maxAttempts, intervalMs });
+        console.log('[ScribeSDK] Polling for completion:', id, { maxAttempts, intervalMs, timeoutMs });
       }
 
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -314,6 +318,16 @@ export class SessionManager {
             'polling_aborted',
             undefined,
             { session_id: id }
+          );
+        }
+
+        // Check for wall-clock timeout before each attempt
+        if (deadline !== undefined && Date.now() >= deadline) {
+          throw new ScribeError(
+            `Polling timed out after ${timeoutMs}ms for session '${id}'`,
+            'polling_timeout',
+            undefined,
+            { session_id: id, timeout_ms: timeoutMs }
           );
         }
 
@@ -339,7 +353,17 @@ export class SessionManager {
 
         // Wait before next poll (skip wait on last attempt)
         if (attempt < maxAttempts) {
-          await this.sleepWithAbort(intervalMs, options?.signal);
+          // Clamp the wait so we never sleep past the deadline.
+          let waitMs = intervalMs;
+          if (deadline !== undefined) {
+            const remaining = deadline - Date.now();
+            // Deadline already reached/passed — loop back so the check above throws.
+            if (remaining <= 0) {
+              continue;
+            }
+            waitMs = Math.min(intervalMs, remaining);
+          }
+          await this.sleepWithAbort(waitMs, options?.signal);
         }
       }
 
