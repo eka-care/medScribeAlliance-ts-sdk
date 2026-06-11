@@ -69,6 +69,7 @@ export class RecordingManager {
   private activeBaseUrl: string = '';
   private _isRecording: boolean = false;
   private _isStarting: boolean = false;
+  private _startGeneration: number = 0;
 
   // Retry context — survives after stop(), cleared on reset() or next start()
   private retryContext: {
@@ -98,6 +99,11 @@ export class RecordingManager {
    * 4. Start recording
    * 5. Dispatch events
    *
+   * Race-safety: Uses a generation counter (`_startGeneration`) so that if
+   * clearRecordingState() or reset() is called while this method is suspended
+   * at an `await`, the resumed call detects the mismatch and aborts instead
+   * of creating an orphaned recorder with a leaked mic/VAD.
+   *
    * @param baseUrl - Server base URL (from discovery or SDK config)
    * @param options - Recording options (templates, model, etc.)
    * @param accessToken - Current Bearer token for upload auth headers
@@ -113,6 +119,7 @@ export class RecordingManager {
     }
 
     this._isStarting = true;
+    const gen = ++this._startGeneration;
 
     // Clear any previous retry context
     this.retryContext = null;
@@ -145,12 +152,19 @@ export class RecordingManager {
         session = createResult.data;
         createSessionHttpStatus = createResult.httpStatus;
       } catch (error) {
-        this.dispatchStartError(
-          ErrorEventType.TRANSPORT_ERROR,
-          ErrorCode.SESSION_CREATION_FAILED,
-          error
-        );
+        if (gen === this._startGeneration) {
+          this.dispatchStartError(
+            ErrorEventType.TRANSPORT_ERROR,
+            ErrorCode.SESSION_CREATION_FAILED,
+            error
+          );
+        }
         throw error;
+      }
+
+      // Abort if superseded by a concurrent clear + start
+      if (gen !== this._startGeneration) {
+        throw new ScribeError('Recording start was superseded by a concurrent operation.');
       }
 
       this.activeSession = session;
@@ -162,8 +176,9 @@ export class RecordingManager {
         data: session,
       });
 
-      // 3. Create the appropriate recorder
-      this.recorder = this.createRecorder(uploadType);
+      // 3. Create the appropriate recorder (local ref for safe cleanup if superseded)
+      const recorder = this.createRecorder(uploadType);
+      this.recorder = recorder;
 
       // 4. Initialize recorder with session details
       const recorderConfig: RecorderConfig = {
@@ -174,29 +189,41 @@ export class RecordingManager {
       };
 
       try {
-        this.recorder.initialize(session, recorderConfig);
+        recorder.initialize(session, recorderConfig);
       } catch (error) {
-        this.cleanupRecordingState();
-        this.dispatchStartError(
-          ErrorEventType.VALIDATION_ERROR,
-          ErrorCode.RECORDER_INIT_FAILED,
-          error
-        );
+        try { recorder.reset(); } catch {}
+        if (gen === this._startGeneration) {
+          this.cleanupRecordingState();
+          this.dispatchStartError(
+            ErrorEventType.VALIDATION_ERROR,
+            ErrorCode.RECORDER_INIT_FAILED,
+            error
+          );
+        }
         throw error;
       }
 
       // Apply discovery-driven chunk length overrides for chunked recorder
-      if (this.recorder instanceof ChunkedRecorder) {
-        this.applyDiscoveryOverrides(this.recorder);
+      if (recorder instanceof ChunkedRecorder) {
+        this.applyDiscoveryOverrides(recorder);
       }
 
       // 5. Start recording — VAD/mic errors possible
       try {
-        await this.recorder.start(options.deviceId);
+        await recorder.start(options.deviceId);
       } catch (error) {
-        this.cleanupRecordingState();
-        this.dispatchStartError(ErrorEventType.VAD_ERROR, ErrorCode.VAD_START_FAILED, error);
+        try { recorder.reset(); } catch {}
+        if (gen === this._startGeneration) {
+          this.cleanupRecordingState();
+          this.dispatchStartError(ErrorEventType.VAD_ERROR, ErrorCode.VAD_START_FAILED, error);
+        }
         throw error;
+      }
+
+      // Abort if superseded during recorder.start() (mic/VAD acquisition)
+      if (gen !== this._startGeneration) {
+        try { recorder.reset(); } catch {}
+        throw new ScribeError('Recording start was superseded by a concurrent operation.');
       }
 
       this._isRecording = true;
@@ -213,7 +240,9 @@ export class RecordingManager {
 
       return { data: session, httpStatus: createSessionHttpStatus };
     } finally {
-      this._isStarting = false;
+      if (gen === this._startGeneration) {
+        this._isStarting = false;
+      }
     }
   }
 
@@ -238,6 +267,8 @@ export class RecordingManager {
     }
 
     this._isStarting = true;
+    // Generation counter — see start() for explanation
+    const gen = ++this._startGeneration;
 
     // Clear any previous retry context
     this.retryContext = null;
@@ -248,8 +279,9 @@ export class RecordingManager {
     this.activeSession = session;
 
     try {
-      // Create the appropriate recorder
-      this.recorder = this.createRecorder(uploadType);
+      // Create the appropriate recorder (local ref for safe cleanup if superseded)
+      const recorder = this.createRecorder(uploadType);
+      this.recorder = recorder;
 
       // Initialize recorder with session details
       const recorderConfig: RecorderConfig = {
@@ -260,29 +292,41 @@ export class RecordingManager {
       };
 
       try {
-        this.recorder.initialize(session, recorderConfig);
+        recorder.initialize(session, recorderConfig);
       } catch (error) {
-        this.cleanupRecordingState();
-        this.dispatchStartError(
-          ErrorEventType.VALIDATION_ERROR,
-          ErrorCode.RECORDER_INIT_FAILED,
-          error
-        );
+        try { recorder.reset(); } catch {}
+        if (gen === this._startGeneration) {
+          this.cleanupRecordingState();
+          this.dispatchStartError(
+            ErrorEventType.VALIDATION_ERROR,
+            ErrorCode.RECORDER_INIT_FAILED,
+            error
+          );
+        }
         throw error;
       }
 
       // Apply discovery-driven chunk length overrides for chunked recorder
-      if (this.recorder instanceof ChunkedRecorder) {
-        this.applyDiscoveryOverrides(this.recorder);
+      if (recorder instanceof ChunkedRecorder) {
+        this.applyDiscoveryOverrides(recorder);
       }
 
       // Start recording — VAD/mic errors possible
       try {
-        await this.recorder.start(options?.deviceId);
+        await recorder.start(options?.deviceId);
       } catch (error) {
-        this.cleanupRecordingState();
-        this.dispatchStartError(ErrorEventType.VAD_ERROR, ErrorCode.VAD_START_FAILED, error);
+        try { recorder.reset(); } catch {}
+        if (gen === this._startGeneration) {
+          this.cleanupRecordingState();
+          this.dispatchStartError(ErrorEventType.VAD_ERROR, ErrorCode.VAD_START_FAILED, error);
+        }
         throw error;
+      }
+
+      // Abort if superseded during recorder.start() (mic/VAD acquisition)
+      if (gen !== this._startGeneration) {
+        try { recorder.reset(); } catch {}
+        throw new ScribeError('Recording start was superseded by a concurrent operation.');
       }
 
       this._isRecording = true;
@@ -300,7 +344,9 @@ export class RecordingManager {
       // No HTTP call in this path — session was created externally and passed in.
       return { data: undefined, httpStatus: undefined };
     } finally {
-      this._isStarting = false;
+      if (gen === this._startGeneration) {
+        this._isStarting = false;
+      }
     }
   }
 
@@ -504,6 +550,9 @@ export class RecordingManager {
    * and don't want to block on pending uploads.
    */
   forceStop(): void {
+    // Invalidate any in-flight start() so it aborts after its next await
+    ++this._startGeneration;
+
     if (!this.recorder || !this._isRecording) {
       return;
     }
@@ -512,8 +561,8 @@ export class RecordingManager {
       // reset() is immediate: destroys VAD, releases mic, terminates worker.
       // Does NOT flush remaining audio or wait for pending uploads.
       this.recorder.reset();
-    } catch {
-      // Best-effort stop
+    } catch (error) {
+      console.error('[ScribeSDK] Error in forceStop:', error);
     } finally {
       this.callbackRegistry.dispatch('onRecordingStateChange', {
         type: RecordingState.ENDED,
@@ -551,6 +600,8 @@ export class RecordingManager {
    * Reset everything — force-stops if recording, clears state.
    */
   reset(): void {
+    // Invalidate any in-flight start() so it aborts after its next await
+    ++this._startGeneration;
     if (this.recorder) {
       this.recorder.reset();
     }
