@@ -55,6 +55,7 @@ export type {
   StopRecordingResult,
   EndRecordingResult,
   RetryUploadResult,
+  UploadAudioFileResult,
   AudioChunkInfo,
 
   // Callbacks (enum types are exported as values from ./constants)

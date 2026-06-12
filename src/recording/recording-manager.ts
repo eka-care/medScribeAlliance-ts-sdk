@@ -43,6 +43,7 @@ import { SingleRecorder } from './single-recorder';
 import type { WorkerManagerConfig } from '../worker/worker-manager';
 import { ScribeError } from '../utils/errors';
 import { getStorageProvider } from '../storage/storage-provider-factory';
+import { uploadFileToStorage } from '../storage/upload-file';
 import {
   RecordingState,
   SessionEventType,
@@ -705,30 +706,17 @@ export class RecordingManager {
     const stillFailed: string[] = [];
     let succeeded = 0;
 
-    const storageProvider = getStorageProvider(storageProviderName);
-
     if (this.config.debug) {
       console.log(`[ScribeSDK] Retrying ${retried} failed uploads`);
     }
 
     for (const chunk of failedChunks) {
       try {
-        const prepared = storageProvider.prepareUpload({
+        await uploadFileToStorage(this.transport, {
           fileName: chunk.fileName,
           blob: chunk.blob,
           upload,
-        });
-
-        await this.transport.request({
-          method: prepared.method,
-          url: prepared.url,
-          headers: prepared.headers,
-          isUpload: true,
-          uploadBlob: chunk.blob,
-          uploadFormFields: prepared.formFields,
-          uploadFileFieldName: prepared.fileFieldName,
-          uploadFileName: chunk.fileName,
-          attachAuth: prepared.attachAuth,
+          storageProvider: storageProviderName,
           maxRetries: 0,
         });
 

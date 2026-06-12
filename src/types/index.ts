@@ -57,6 +57,7 @@ export type {
   StopRecordingResult,
   EndRecordingResult,
   RetryUploadResult,
+  UploadAudioFileResult,
   AudioChunkInfo,
   UploadProgressCallback,
 } from './recording';

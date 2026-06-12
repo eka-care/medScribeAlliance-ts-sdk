@@ -27,6 +27,7 @@ import type {
   CreateSessionRequest,
   EndSessionRequest,
   EndSessionResponse,
+  SessionUploadInfo,
   SDKResult,
   ApiCallResult,
   PatchSessionRequest,
@@ -43,7 +44,8 @@ import type { ITransport } from './types/transport';
 import { DiscoveryManager } from './discovery/discovery-manager';
 import { SessionManager } from './session/session-manager';
 import { RecordingManager } from './recording/recording-manager';
-import type { EndRecordingResult, RetryUploadResult } from './types/recording';
+import type { EndRecordingResult, RetryUploadResult, UploadAudioFileResult } from './types/recording';
+import { uploadFileToStorage } from './storage/upload-file';
 
 export class ScribeClient {
   private config: ScribeSDKConfig;
@@ -238,6 +240,51 @@ export class ScribeClient {
    */
   forceAllowMoreChunks(): void {
     this.recordingManager.forceAllowMoreChunks();
+  }
+
+  // --- Pre-recorded audio ---
+
+  /**
+   * Upload a single pre-recorded audio file to storage.
+   * @param file - The audio file/blob to upload.
+   * @param upload - The `upload_url` payload from the create-session response.
+   * @param options.fileName - Storage object name. Defaults to the File's name,
+   *   else `audio_0.<ext>` derived from the MIME type.
+   */
+  async uploadAudioFile(
+    file: Blob,
+    fileName: string,
+    upload: SessionUploadInfo
+  ): Promise<SDKResult<UploadAudioFileResult>> {
+    return this.wrapResult(async () => {
+      if (!file || file.size === 0) {
+        throw new ValidationError('A non-empty audio file is required');
+      }
+      if (!fileName || !fileName.trim()) {
+        throw new ValidationError('fileName is required');
+      }
+      if (!upload || typeof upload !== 'object') {
+        throw new ValidationError('upload (upload_url payload) is required');
+      }
+
+      // Provider comes from discovery (createSession already ran it). Defaults to 'aws'.
+      const response = await uploadFileToStorage(this.transport, {
+        fileName,
+        blob: file,
+        upload,
+        storageProvider: this.getStorageProviderName(),
+      });
+
+      return {
+        data: {
+          fileName,
+          status: response.status,
+          headers: response.headers,
+          response: response.data,
+        },
+        httpStatus: response.status,
+      };
+    });
   }
 
   // --- Session ---
@@ -581,6 +628,15 @@ export class ScribeClient {
       forceMainThread: false,
       workerScriptUrl: this.config.workerScriptUrl,
     };
+  }
+
+  /** Storage provider name from discovery; defaults to 'aws'. */
+  private getStorageProviderName(): string {
+    try {
+      return this.discoveryManager.getResolvedConfig().storageProvider || 'aws';
+    } catch {
+      return 'aws';
+    }
   }
 
   /**

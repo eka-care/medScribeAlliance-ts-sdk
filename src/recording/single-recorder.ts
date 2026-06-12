@@ -14,7 +14,7 @@ import type { ITransport } from '../types/transport';
 import { CallbackRegistry } from '../callbacks/callback-registry';
 import { ErrorEventType, ErrorCode, UploadEventType } from '../constants';
 import { getStorageProvider } from '../storage/storage-provider-factory';
-import type { StorageProvider } from '../storage/storage-provider.interface';
+import { uploadFileToStorage } from '../storage/upload-file';
 
 export class SingleRecorder implements IRecorder {
   private mediaRecorder: MediaRecorder | null = null;
@@ -23,7 +23,7 @@ export class SingleRecorder implements IRecorder {
   private _isPaused: boolean = false;
 
   private uploadPayload: SessionUploadInfo = {};
-  private storageProvider: StorageProvider | null = null;
+  private storageProviderName: string = '';
   private callbackRegistry: CallbackRegistry;
   private transport: ITransport;
 
@@ -46,8 +46,9 @@ export class SingleRecorder implements IRecorder {
       throw new Error('Storage provider is required for single recording');
     }
     this.uploadPayload = config.upload;
-    // Throws UnsupportedStorageProviderError for an unknown provider.
-    this.storageProvider = getStorageProvider(config.storageProvider);
+    this.storageProviderName = config.storageProvider;
+    // Validate now — throws UnsupportedStorageProviderError for an unknown provider.
+    getStorageProvider(config.storageProvider);
     this.failedUploadData = null;
   }
 
@@ -117,26 +118,11 @@ export class SingleRecorder implements IRecorder {
       const fileName = `audio_0.${this.getFileExtension()}`;
 
       try {
-        if (!this.storageProvider) {
-          throw new Error('Storage provider not configured. Call initialize() first.');
-        }
-
-        const prepared = this.storageProvider.prepareUpload({
+        await uploadFileToStorage(this.transport, {
           fileName,
           blob: audioBlob,
           upload: this.uploadPayload,
-        });
-
-        await this.transport.request({
-          method: prepared.method,
-          url: prepared.url,
-          headers: prepared.headers,
-          isUpload: true,
-          uploadBlob: audioBlob,
-          uploadFormFields: prepared.formFields,
-          uploadFileFieldName: prepared.fileFieldName,
-          uploadFileName: fileName,
-          attachAuth: prepared.attachAuth,
+          storageProvider: this.storageProviderName,
         });
 
         this.callbackRegistry.dispatch('onUploadEvent', {

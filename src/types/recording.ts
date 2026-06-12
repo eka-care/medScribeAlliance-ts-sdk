@@ -77,4 +77,16 @@ export interface RetryUploadResult {
   stillFailed: string[];
 }
 
+/** Result of ScribeClient.uploadAudioFile() — the storage backend's full response. */
+export interface UploadAudioFileResult {
+  /** The storage object name used. */
+  fileName: string;
+  /** HTTP status from the storage backend (e.g. 204 for an S3 presigned POST). */
+  status: number;
+  /** Response headers from the storage backend (e.g. ETag). */
+  headers: Record<string, string>;
+  /** Raw response body from the storage backend (often empty for S3). */
+  response: unknown;
+}
+
 export type UploadProgressCallback = (successFiles: string[], totalCount: number) => void;

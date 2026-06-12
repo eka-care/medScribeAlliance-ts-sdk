@@ -198,6 +198,8 @@ await client.reset(); // stops recording if active, clears all state and caches
 - **`cancelSession()` does NOT trigger processing.** It stops the recorder locally, cleans up state, and tells the server the session is cancelled. No `endSession` call is made to the backend.
 - **All async methods return `SDKResult<T>`, never throw.** Always check `result.success` before accessing `result.data`. Errors are in `result.error`.
 - **The SDK validates inputs against the discovery document.** If the server doesn't support an upload type, language, or model you requested, you'll get a `ValidationError` before the API call is made.
+- **Audio uploads go to a server-selected storage backend.** Discovery's `capabilities.storage_provider` (default `aws`) decides the backend; uploads go directly to it (e.g. S3 presigned POST). 
+
 - **SharedWorker is optional.** If you provide `workerScriptUrl`, the SDK offloads MP3 compression and upload to a SharedWorker. If the worker fails to load, it silently falls back to main-thread processing.
 - **Microphone permission is requested on `startRecording()`.** The browser will prompt the user for mic access. If denied, you'll get an error via `onError` callback.
 - **`reset()` is a full teardown.** It destroys the transport, clears discovery cache, removes all callbacks, and sets the client back to uninitialized state. You'll need to call `init()` (or `startRecording()`) again after reset.
@@ -272,6 +274,42 @@ if (client.hasFailedUploads()) {
   console.log(`Retried: ${retryResult.data.retried}, Succeeded: ${retryResult.data.succeeded}`);
 }
 ```
+
+### Upload a Pre-recorded Audio File
+
+For processing an already-recorded file (no mic/VAD). Create a session, then upload the file using the session's `upload_url`, then end the session and poll.
+
+```ts
+// 1. Create a session (gives you upload_url)
+const session = await client.createSession({
+  templates: ['soap'],
+  upload_type: 'single',
+  communication_protocol: 'http',
+});
+if (!session.success) return;
+
+// 2. Upload the file to storage using the session's upload_url
+const upload = await client.uploadAudioFile(
+  myAudioFile,
+  'audio_0.mp3',            // storage object name
+  session.data.upload_url
+);
+if (!upload.success) {
+  console.error('Upload failed:', upload.error.message);
+  return;
+}
+console.log(upload.data.status, upload.data.headers); // full storage response
+
+// 3. End the session to trigger processing, then poll getSessionStatus()
+await client.endSession(
+  { audio_files_sent: 1, audio_files_uploaded: 1 },
+  session.data.session_id
+);
+```
+
+- `file` is a `File`/`Blob`; `fileName` is the storage object name; `upload` is the `upload_url` object from the create-session response.
+- Returns `UploadAudioFileResult` — `{ fileName, status, headers, response }` (the full storage response; the body is usually empty for an S3 presigned POST).
+- Failures (network, malformed `upload_url`) come back as `UploadError` in `result.error`; an unknown provider as `UnsupportedStorageProviderError`.
 
 ### Update Auth Token
 
@@ -351,6 +389,7 @@ interface RecordingOptions {
 | `isRecordingPaused()` | `boolean` | Whether the active recording is paused. |
 | `retryFailedUploads()` | `SDKResult<RetryUploadResult>` | Retry uploads that failed during the last recording. |
 | `hasFailedUploads()` | `boolean` | Whether there are retryable failed uploads. |
+| `uploadAudioFile(file, fileName, upload)` | `SDKResult<UploadAudioFileResult>` | Upload one pre-recorded audio file to storage using a session's `upload_url`. No mic/recorder. |
 
 ### Session
 
@@ -457,9 +496,11 @@ interface CreateSessionResponse {
   status: SessionStatus;
   created_at: string;
   expires_at: string;
-  upload_url: string;
+  upload_url: SessionUploadInfo;
   patient_details?: PatientDetails;
 }
+
+type SessionUploadInfo = Record<string, unknown>;
 
 interface PatchSessionRequest {
   user_status?: string;
@@ -585,7 +626,8 @@ console.log(result.data.session_id);
 | `DiscoveryError` | — | Discovery fetch/parse failed |
 | `TransportError` | — | Network / IPC failure |
 | `WorkerError` | — | SharedWorker failure |
-| `UploadError` | — | Audio upload failure |
+| `UploadError` | — | Audio upload failure (failed transfer, or malformed `upload_url` payload). Has `failedFiles: string[]`. |
+| `UnsupportedStorageProviderError` | — | Discovery advertised a `storage_provider` this SDK build has no wrapper for. Thrown at `startRecording`. Has `provider: string`. |
 
 ## SharedWorker Support
 
@@ -647,6 +689,8 @@ const client = new ScribeClient({
 ```
 
 IPC mode always uses main-thread compression (SharedWorker can't access the IPC bridge).
+
+> **Presigned uploads over IPC need host support.** The SDK forwards `uploadFormFields` + base64 file (`blobData`) in the `IpcRequest`; your host must build the `multipart/form-data` POST (no `Authorization` header). Browser/HTTP mode works out of the box.
 
 ## Building from Source
 

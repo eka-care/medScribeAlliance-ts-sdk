@@ -31,7 +31,7 @@ import type { ITransport } from '../types/transport';
 import type { MainToWorkerMessage, WorkerToMainMessage } from '../types/worker';
 import type { SessionUploadInfo } from '../types/session';
 import { getStorageProvider } from '../storage/storage-provider-factory';
-import type { StorageProvider } from '../storage/storage-provider.interface';
+import { uploadFileToStorage } from '../storage/upload-file';
 
 export interface WorkerManagerConfig {
   /** Path to the compiled shared-worker.js bundle. Required for SharedWorker mode. */
@@ -52,7 +52,6 @@ export class WorkerManager {
   // Upload destination set by ChunkedRecorder on init.
   private uploadPayload: SessionUploadInfo = {};
   private storageProviderName: string = '';
-  private storageProvider: StorageProvider | null = null;
   private uploadHeaders: Record<string, string> = {};
 
   // Track pending main-thread uploads for waitForAllUploads
@@ -112,7 +111,8 @@ export class WorkerManager {
     this.uploadPayload = upload;
     this.storageProviderName = storageProvider;
     this.uploadHeaders = headers;
-    this.storageProvider = getStorageProvider(storageProvider);
+    // Validate now — throws UnsupportedStorageProviderError for an unknown provider.
+    getStorageProvider(storageProvider);
   }
 
   /**
@@ -352,27 +352,12 @@ export class WorkerManager {
         data: { chunkIndex, fileName, chunkData: encoded.chunks },
       });
 
-      // 3. Build the provider-specific request, then send via ITransport.
-      if (!this.storageProvider) {
-        throw new Error('Storage provider not configured. Call setUploadConfig() first.');
-      }
-
-      const prepared = this.storageProvider.prepareUpload({
+      // 3. Build the provider-specific request and send via ITransport.
+      await uploadFileToStorage(this.transport, {
         fileName,
         blob: mp3Blob,
         upload: this.uploadPayload,
-      });
-
-      await this.transport.request({
-        method: prepared.method,
-        url: prepared.url,
-        headers: prepared.headers,
-        isUpload: true,
-        uploadBlob: mp3Blob,
-        uploadFormFields: prepared.formFields,
-        uploadFileFieldName: prepared.fileFieldName,
-        uploadFileName: fileName,
-        attachAuth: prepared.attachAuth,
+        storageProvider: this.storageProviderName,
       });
 
       // 4. Success — transport.request() throws on failure, so reaching here means success
