@@ -34,6 +34,7 @@ export type {
 export type {
   CreateSessionRequest,
   CreateSessionResponse,
+  SessionUploadInfo,
   EndSessionRequest,
   EndSessionResponse,
   GetSessionStatusResponse,

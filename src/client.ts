@@ -143,7 +143,6 @@ export class ScribeClient {
     });
   }
 
-  // TODO: getSessionDetails will return create session response?
   /**
    * Start recording for an already-created session.
    * Use this when the session was created via createSession() and you want

@@ -8,7 +8,9 @@ export interface WorkerCompressAndUploadMessage {
   type: 'compress_and_upload';
   audioFrames: Float32Array;
   fileName: string;
-  uploadUrl: string;
+  storageProvider: string;
+  /** Provider-specific upload payload from the create-session response. */
+  upload: unknown;
   headers: Record<string, string>;
 }
 

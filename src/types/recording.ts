@@ -2,7 +2,12 @@
  * Recording types
  */
 
-import { CreateSessionResponse, EndSessionResponse, PatientDetails } from './session';
+import {
+  CreateSessionResponse,
+  EndSessionResponse,
+  PatientDetails,
+  SessionUploadInfo,
+} from './session';
 
 export interface RecordingOptions {
   templates: string[] | [];
@@ -20,7 +25,9 @@ export interface RecordingOptions {
 
 export interface RecorderConfig {
   accessToken?: string;
-  uploadUrl: string;
+  /** Provider-specific upload payload from the create-session response. */
+  upload: SessionUploadInfo;
+  storageProvider: string;
   uploadHeaders: Record<string, string>;
   sessionId: string;
 }

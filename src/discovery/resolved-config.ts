@@ -28,6 +28,7 @@ export function resolveConfig(doc: DiscoveryDocument): ResolvedConfig {
       autoDetectLanguage: doc.languages?.auto_detection ?? false,
       supportedAudioFormats: doc.capabilities.audio_formats,
       supportedUploadMethods: doc.capabilities.upload_methods ?? [],
+      storageProvider: doc.capabilities.storage_provider ?? 'aws',
       maxChunkDurationSeconds: doc.capabilities.max_chunk_duration_seconds,
       maxSessionDurationSeconds,
       supportedAuthMethods: doc.authentication.supported_methods,
@@ -40,7 +41,9 @@ export function resolveConfig(doc: DiscoveryDocument): ResolvedConfig {
       throw error;
     }
     throw new DiscoveryError(
-      `Failed to resolve discovery config: ${error instanceof Error ? error.message : 'Unknown error'}`
+      `Failed to resolve discovery config: ${
+        error instanceof Error ? error.message : 'Unknown error'
+      }`
     );
   }
 }

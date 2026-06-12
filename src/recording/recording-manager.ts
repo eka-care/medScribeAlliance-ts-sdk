@@ -31,6 +31,7 @@ import type {
   CreateSessionRequest,
   CreateSessionResponse,
   EndSessionResponse,
+  SessionUploadInfo,
 } from '../types/session';
 import type { ApiCallResult } from '../types/common';
 import type { ITransport } from '../types/transport';
@@ -41,6 +42,7 @@ import { ChunkedRecorder } from './chunked-recorder';
 import { SingleRecorder } from './single-recorder';
 import type { WorkerManagerConfig } from '../worker/worker-manager';
 import { ScribeError } from '../utils/errors';
+import { getStorageProvider } from '../storage/storage-provider-factory';
 import {
   RecordingState,
   SessionEventType,
@@ -73,7 +75,8 @@ export class RecordingManager {
 
   // Retry context — survives after stop(), cleared on reset() or next start()
   private retryContext: {
-    uploadUrl: string;
+    upload: SessionUploadInfo;
+    storageProvider: string;
     failedChunks: Array<{ fileName: string; blob: Blob }>;
   } | null = null;
 
@@ -169,6 +172,22 @@ export class RecordingManager {
 
       this.activeSession = session;
 
+      // Fail fast on an unsupported provider before touching the mic/VAD.
+      let storageProvider: string;
+      try {
+        storageProvider = this.resolveStorageProviderName();
+      } catch (error) {
+        if (gen === this._startGeneration) {
+          this.cleanupRecordingState();
+          this.dispatchStartError(
+            ErrorEventType.VALIDATION_ERROR,
+            ErrorCode.UNSUPPORTED_STORAGE_PROVIDER,
+            error
+          );
+        }
+        throw error;
+      }
+
       // Dispatch session created event
       this.callbackRegistry.dispatch('onSessionEvent', {
         type: SessionEventType.CREATED,
@@ -183,7 +202,8 @@ export class RecordingManager {
       // 4. Initialize recorder with session details
       const recorderConfig: RecorderConfig = {
         accessToken,
-        uploadUrl: session.upload_url,
+        upload: session.upload_url,
+        storageProvider,
         uploadHeaders: this.buildUploadHeaders(accessToken),
         sessionId: session.session_id,
       };
@@ -279,6 +299,22 @@ export class RecordingManager {
     this.activeSession = session;
 
     try {
+      // Fail fast on an unsupported provider before touching the mic/VAD.
+      let storageProvider: string;
+      try {
+        storageProvider = this.resolveStorageProviderName();
+      } catch (error) {
+        if (gen === this._startGeneration) {
+          this.cleanupRecordingState();
+          this.dispatchStartError(
+            ErrorEventType.VALIDATION_ERROR,
+            ErrorCode.UNSUPPORTED_STORAGE_PROVIDER,
+            error
+          );
+        }
+        throw error;
+      }
+
       // Create the appropriate recorder (local ref for safe cleanup if superseded)
       const recorder = this.createRecorder(uploadType);
       this.recorder = recorder;
@@ -286,7 +322,8 @@ export class RecordingManager {
       // Initialize recorder with session details
       const recorderConfig: RecorderConfig = {
         accessToken,
-        uploadUrl: session.upload_url,
+        upload: session.upload_url,
+        storageProvider,
         uploadHeaders: this.buildUploadHeaders(accessToken),
         sessionId: session.session_id,
       };
@@ -649,7 +686,7 @@ export class RecordingManager {
 
   /**
    * Retry uploading audio files that failed during the last recording.
-   * Uses the stored MP3 blobs and the original upload URL.
+   * Uses the stored MP3 blobs and the same storage provider as the recording.
    *
    * Each file is re-uploaded via transport.request() with retry logic.
    * Successfully retried files are removed from the retry context.
@@ -663,10 +700,12 @@ export class RecordingManager {
       return { data: { retried: 0, succeeded: 0, stillFailed: [] }, httpStatus: undefined };
     }
 
-    const { uploadUrl, failedChunks } = this.retryContext;
+    const { upload, storageProvider: storageProviderName, failedChunks } = this.retryContext;
     const retried = failedChunks.length;
     const stillFailed: string[] = [];
     let succeeded = 0;
+
+    const storageProvider = getStorageProvider(storageProviderName);
 
     if (this.config.debug) {
       console.log(`[ScribeSDK] Retrying ${retried} failed uploads`);
@@ -674,15 +713,22 @@ export class RecordingManager {
 
     for (const chunk of failedChunks) {
       try {
-        const fullUrl = uploadUrl.endsWith('/')
-          ? `${uploadUrl}${chunk.fileName}`
-          : `${uploadUrl}/${chunk.fileName}`;
+        const prepared = storageProvider.prepareUpload({
+          fileName: chunk.fileName,
+          blob: chunk.blob,
+          upload,
+        });
 
         await this.transport.request({
-          method: 'POST',
-          url: fullUrl,
+          method: prepared.method,
+          url: prepared.url,
+          headers: prepared.headers,
           isUpload: true,
           uploadBlob: chunk.blob,
+          uploadFormFields: prepared.formFields,
+          uploadFileFieldName: prepared.fileFieldName,
+          uploadFileName: chunk.fileName,
+          attachAuth: prepared.attachAuth,
           maxRetries: 0,
         });
 
@@ -749,6 +795,22 @@ export class RecordingManager {
       undefined, // vadConfig — use defaults, overridden by discovery below
       this.config.workerConfig
     );
+  }
+
+  /** Storage provider name from discovery; defaults to 'aws'. */
+  private getStorageProviderName(): string {
+    try {
+      return this.discoveryManager.getResolvedConfig().storageProvider || 'aws';
+    } catch {
+      return 'aws';
+    }
+  }
+
+  /** Validate the provider has a wrapper (throws UnsupportedStorageProviderError) and return its name. */
+  private resolveStorageProviderName(): string {
+    const name = this.getStorageProviderName();
+    getStorageProvider(name);
+    return name;
   }
 
   /**
@@ -825,7 +887,8 @@ export class RecordingManager {
     }
 
     this.retryContext = {
-      uploadUrl: this.activeSession.upload_url,
+      upload: this.activeSession.upload_url,
+      storageProvider: this.getStorageProviderName(),
       failedChunks,
     };
 

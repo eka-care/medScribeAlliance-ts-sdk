@@ -34,6 +34,7 @@ export type {
   // Session
   CreateSessionRequest,
   CreateSessionResponse,
+  SessionUploadInfo,
   EndSessionRequest,
   EndSessionResponse,
   GetSessionStatusResponse,
@@ -119,7 +120,16 @@ export {
   TransportError,
   WorkerError,
   UploadError,
+  UnsupportedStorageProviderError,
 } from './utils/errors';
+
+// --- Storage providers (pluggable upload backends) ---
+export {
+  getStorageProvider,
+  isStorageProviderSupported,
+  AwsS3StorageProvider,
+} from './storage';
+export type { StorageProvider, UploadContext, PreparedUpload } from './storage';
 
 // --- Managers (for advanced usage / testing) ---
 export { CallbackRegistry } from './callbacks/callback-registry';

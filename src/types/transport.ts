@@ -9,6 +9,13 @@ export interface TransportRequest {
   body?: any;
   isUpload?: boolean;
   uploadBlob?: Blob;
+  uploadFileName?: string;
+  /** Multipart form fields; when set, the request is multipart/form-data with uploadBlob as the file. */
+  uploadFormFields?: Record<string, string>;
+  /** Multipart field name for the file part. Defaults to 'file'. */
+  uploadFileFieldName?: string;
+  /** Attach the service Bearer + flavour header. Defaults to true; false for presigned uploads. */
+  attachAuth?: boolean;
   /** Additional HTTP status codes to treat as success (not throw). */
   acceptStatuses?: number[];
   maxRetries?: number;
@@ -41,8 +48,14 @@ export interface IpcRequest {
   url: string;
   headers?: Record<string, string>;
   body?: any;
-  /** Base64-encoded blob data for uploads */
+  /** Base64-encoded file bytes for uploads. */
   blobData?: string;
+  /** Multipart fields for presigned uploads — host builds multipart from these + blobData (no auth header). */
+  uploadFormFields?: Record<string, string>;
+  /** Multipart field name for the file part. Defaults to 'file'. */
+  uploadFileFieldName?: string;
+  /** File name for the multipart file part. */
+  uploadFileName?: string;
 }
 
 export interface IpcResponse {
