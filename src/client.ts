@@ -247,9 +247,8 @@ export class ScribeClient {
   /**
    * Upload a single pre-recorded audio file to storage.
    * @param file - The audio file/blob to upload.
+   * @param fileName - Storage object name, e.g. "1.mp3".
    * @param upload - The `upload_url` payload from the create-session response.
-   * @param options.fileName - Storage object name. Defaults to the File's name,
-   *   else `audio_0.<ext>` derived from the MIME type.
    */
   async uploadAudioFile(
     file: Blob,

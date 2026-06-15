@@ -115,7 +115,7 @@ export class SingleRecorder implements IRecorder {
     try {
       // Wait for MediaRecorder to finish
       const audioBlob = await this.stopMediaRecorder();
-      const fileName = `audio_0.${this.getFileExtension()}`;
+      const fileName = `1.${this.getFileExtension()}`;
 
       try {
         await uploadFileToStorage(this.transport, {

@@ -291,7 +291,7 @@ if (!session.success) return;
 // 2. Upload the file to storage using the session's upload_url
 const upload = await client.uploadAudioFile(
   myAudioFile,
-  'audio_0.mp3',            // storage object name
+  '1.mp3',                  // storage object name
   session.data.upload_url
 );
 if (!upload.success) {

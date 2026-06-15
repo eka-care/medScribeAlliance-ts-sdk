@@ -120,7 +120,7 @@ export class WorkerManager {
    * Called by ChunkedRecorder each time a clip point is detected.
    *
    * @param audioFrames - Raw Float32Array PCM audio
-   * @param fileName - Protocol-spec file name (e.g. audio_0.mp3)
+   * @param fileName - Chunk file name (e.g. 1.mp3)
    * @param chunkIndex - Index in AudioFileManager's chunk list
    */
   compressAndUpload(audioFrames: Float32Array, fileName: string, chunkIndex: number): void {
