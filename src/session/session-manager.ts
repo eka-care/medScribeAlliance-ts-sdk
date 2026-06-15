@@ -41,7 +41,6 @@ export class SessionManager {
     this.debug = debug;
   }
 
-  // TODO: session-id is created by server not client
   /**
    * Create a new scribe session.
    * Validates the request structure, sends to server, validates response.
@@ -303,22 +302,22 @@ export class SessionManager {
       const intervalMs = options?.intervalMs ?? DEFAULT_POLL_INTERVAL_MS;
       const timeoutMs = options?.timeoutMs;
       const startTime = Date.now();
-      const deadline =
-        timeoutMs !== undefined && timeoutMs > 0 ? startTime + timeoutMs : undefined;
+      const deadline = timeoutMs !== undefined && timeoutMs > 0 ? startTime + timeoutMs : undefined;
 
       if (this.debug) {
-        console.log('[ScribeSDK] Polling for completion:', id, { maxAttempts, intervalMs, timeoutMs });
+        console.log('[ScribeSDK] Polling for completion:', id, {
+          maxAttempts,
+          intervalMs,
+          timeoutMs,
+        });
       }
 
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         // Check for abort before each attempt
         if (options?.signal?.aborted) {
-          throw new ScribeError(
-            'Polling was aborted',
-            'polling_aborted',
-            undefined,
-            { session_id: id }
-          );
+          throw new ScribeError('Polling was aborted', 'polling_aborted', undefined, {
+            session_id: id,
+          });
         }
 
         // Check for wall-clock timeout before each attempt

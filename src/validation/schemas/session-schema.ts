@@ -60,13 +60,12 @@ export const PatchSessionRequestSchema = z.object({
 
 // --- Response schemas ---
 
-// Spec: session_id, status, created_at, expires_at, upload_url are all REQUIRED
 export const CreateSessionResponseSchema = z.object({
   session_id: z.string().min(1, 'session_id is required'),
   status: z.string(),
   created_at: z.string(),
   expires_at: z.string(),
-  upload_url: z.string().min(1, 'upload_url is required'),
+  upload_url: z.record(z.string(), z.unknown()),
   patient_details: z
     .object({
       name: z.string().optional(),

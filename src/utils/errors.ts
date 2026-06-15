@@ -139,3 +139,19 @@ export class UploadError extends ScribeError {
     };
   }
 }
+
+/** Thrown when discovery advertises a storage provider the SDK has no wrapper for. */
+export class UnsupportedStorageProviderError extends ScribeError {
+  public readonly provider: string;
+
+  constructor(provider: string) {
+    super(
+      `Storage provider '${provider || '(none)'}' is not supported by this SDK build.`,
+      ErrorCode.UNSUPPORTED_STORAGE_PROVIDER,
+      undefined,
+      { provider }
+    );
+    this.name = 'UnsupportedStorageProviderError';
+    this.provider = provider;
+  }
+}

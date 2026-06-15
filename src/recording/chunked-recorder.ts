@@ -104,13 +104,16 @@ export class ChunkedRecorder implements IRecorder {
    * Called by RecordingManager after session creation.
    * Throws on failure — RecordingManager handles error dispatch.
    */
-  initialize(session: CreateSessionResponse, config: RecorderConfig): void {
-    if (!session.upload_url) {
-      throw new Error('Upload URL is required for chunked recording');
+  initialize(_session: CreateSessionResponse, config: RecorderConfig): void {
+    if (!config.upload || typeof config.upload !== 'object') {
+      throw new Error('Upload payload is required for chunked recording');
+    }
+    if (!config.storageProvider) {
+      throw new Error('Storage provider is required for chunked recording');
     }
 
-    // Configure WorkerManager with upload destination
-    this.workerManager.setUploadConfig(session.upload_url, config.uploadHeaders);
+    // Throws UnsupportedStorageProviderError for an unknown provider.
+    this.workerManager.setUploadConfig(config.upload, config.storageProvider, config.uploadHeaders);
 
     this.initialized = true;
   }

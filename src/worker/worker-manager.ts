@@ -29,6 +29,9 @@ import { MAX_CHUNK_LENGTH, CHUNK_LENGTH_TOLERANCE, SAMPLING_RATE } from '../audi
 import { ErrorEventType, ErrorCode, AudioEventType, UploadEventType } from '../constants';
 import type { ITransport } from '../types/transport';
 import type { MainToWorkerMessage, WorkerToMainMessage } from '../types/worker';
+import type { SessionUploadInfo } from '../types/session';
+import { getStorageProvider } from '../storage/storage-provider-factory';
+import { uploadFileToStorage } from '../storage/upload-file';
 
 export interface WorkerManagerConfig {
   /** Path to the compiled shared-worker.js bundle. Required for SharedWorker mode. */
@@ -46,8 +49,9 @@ export class WorkerManager {
   private fileManager: AudioFileManager;
   private transport: ITransport;
 
-  // Upload URL + headers set by ChunkedRecorder when session is initialized
-  private uploadUrl: string = '';
+  // Upload destination set by ChunkedRecorder on init.
+  private uploadPayload: SessionUploadInfo = {};
+  private storageProviderName: string = '';
   private uploadHeaders: Record<string, string> = {};
 
   // Track pending main-thread uploads for waitForAllUploads
@@ -97,19 +101,26 @@ export class WorkerManager {
 
   /**
    * Set upload destination — called by ChunkedRecorder after session creation.
+   * @throws UnsupportedStorageProviderError if the provider has no wrapper.
    */
-  setUploadConfig(uploadUrl: string, headers: Record<string, string>): void {
-    this.uploadUrl = uploadUrl;
+  setUploadConfig(
+    upload: SessionUploadInfo,
+    storageProvider: string,
+    headers: Record<string, string>
+  ): void {
+    this.uploadPayload = upload;
+    this.storageProviderName = storageProvider;
     this.uploadHeaders = headers;
+    // Validate now — throws UnsupportedStorageProviderError for an unknown provider.
+    getStorageProvider(storageProvider);
   }
 
-  // TODO: file upload via multipart form-data or raw binary body
   /**
    * Compress raw audio to MP3 and upload.
    * Called by ChunkedRecorder each time a clip point is detected.
    *
    * @param audioFrames - Raw Float32Array PCM audio
-   * @param fileName - Protocol-spec file name (e.g. audio_0.mp3)
+   * @param fileName - Chunk file name (e.g. 1.mp3)
    * @param chunkIndex - Index in AudioFileManager's chunk list
    */
   compressAndUpload(audioFrames: Float32Array, fileName: string, chunkIndex: number): void {
@@ -207,7 +218,8 @@ export class WorkerManager {
       type: 'compress_and_upload',
       audioFrames,
       fileName,
-      uploadUrl: this.uploadUrl,
+      storageProvider: this.storageProviderName,
+      upload: this.uploadPayload,
       headers: { ...this.uploadHeaders },
     });
   }
@@ -340,17 +352,12 @@ export class WorkerManager {
         data: { chunkIndex, fileName, chunkData: encoded.chunks },
       });
 
-      // 3. Upload via ITransport (handles HTTP or IPC transparently)
-      const fullUrl = this.uploadUrl.endsWith('/')
-        ? `${this.uploadUrl}${fileName}`
-        : `${this.uploadUrl}/${fileName}`;
-
-      await this.transport.request({
-        method: 'POST',
-        url: fullUrl,
-        headers: this.uploadHeaders,
-        isUpload: true,
-        uploadBlob: mp3Blob,
+      // 3. Build the provider-specific request and send via ITransport.
+      await uploadFileToStorage(this.transport, {
+        fileName,
+        blob: mp3Blob,
+        upload: this.uploadPayload,
+        storageProvider: this.storageProviderName,
       });
 
       // 4. Success — transport.request() throws on failure, so reaching here means success

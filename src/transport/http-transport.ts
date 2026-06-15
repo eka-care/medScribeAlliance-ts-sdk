@@ -147,21 +147,24 @@ export class HttpTransport implements ITransport {
   private buildHeaders(config: TransportRequest): Record<string, string> {
     const headers: Record<string, string> = {};
 
-    // For non-upload requests, set JSON content type
+    // Presigned uploads authenticate via signed fields — no service auth/flavour,
+    // and multipart Content-Type is set by fetch (boundary).
+    const isExternalUpload = config.isUpload === true && config.attachAuth === false;
+
     if (!config.isUpload) {
       headers['Content-Type'] = 'application/json';
       headers['Accept'] = 'application/json';
-    } else {
-      // Upload requests send raw blob with audio content type
+    } else if (!config.uploadFormFields) {
       headers['Content-Type'] = 'audio/mp3';
     }
 
-    if (this.accessToken) {
-      headers['Authorization'] = `Bearer ${this.accessToken}`;
-    }
-
-    if (this.flavour) {
-      headers['flavour'] = this.flavour;
+    if (!isExternalUpload) {
+      if (this.accessToken) {
+        headers['Authorization'] = `Bearer ${this.accessToken}`;
+      }
+      if (this.flavour) {
+        headers['flavour'] = this.flavour;
+      }
     }
 
     // Merge any caller-provided headers (overrides defaults)
@@ -173,13 +176,30 @@ export class HttpTransport implements ITransport {
   }
 
   private buildRequestInit(config: TransportRequest, headers: Record<string, string>): RequestInit {
+    // Omit credentials for presigned uploads to a third-party origin (S3 CORS).
+    const isExternalUpload = config.isUpload === true && config.attachAuth === false;
+
     const init: RequestInit = {
       method: config.method,
       headers,
-      credentials: 'include',
+      credentials: isExternalUpload ? 'omit' : 'include',
     };
 
-    if (config.isUpload && config.uploadBlob) {
+    if (config.isUpload && config.uploadFormFields) {
+      // Multipart: form fields first, file last.
+      const formData = new FormData();
+      for (const [field, value] of Object.entries(config.uploadFormFields)) {
+        formData.append(field, value);
+      }
+      if (config.uploadBlob) {
+        formData.append(
+          config.uploadFileFieldName ?? 'file',
+          config.uploadBlob,
+          config.uploadFileName
+        );
+      }
+      init.body = formData;
+    } else if (config.isUpload && config.uploadBlob) {
       init.body = config.uploadBlob;
     } else if (config.body !== undefined) {
       init.body = JSON.stringify(config.body);

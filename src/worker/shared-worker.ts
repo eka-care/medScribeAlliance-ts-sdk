@@ -20,6 +20,8 @@
 
 import { encodeToMp3 } from '../audio/mp3-encoder';
 import type { MainToWorkerMessage, WorkerToMainMessage } from '../types/worker';
+import { getStorageProvider } from '../storage/storage-provider-factory';
+import type { PreparedUpload } from '../storage/storage-provider.interface';
 
 // Number of retries after the initial attempt.
 // Total attempts per upload = 1 (initial) + DEFAULT_MAX_RETRIES = 3.
@@ -87,40 +89,63 @@ function waitForTokenUpdate(): Promise<void> {
 }
 
 /**
- * Upload a blob to the given URL with retry logic.
- * Returns success/failure with the server error message if available.
+ * Build the fetch RequestInit for a prepared upload.
+ * Service auth (Bearer/flavour/credentials) is attached only when attachAuth is true.
  */
-async function uploadWithRetry(
-  uploadUrl: string,
+function buildUploadInit(
+  prepared: PreparedUpload,
   fileName: string,
   blob: Blob,
-  headers: Record<string, string>
+  serviceHeaders: Record<string, string>
+): RequestInit {
+  const requestHeaders: Record<string, string> = { ...prepared.headers };
+
+  if (prepared.attachAuth) {
+    Object.assign(requestHeaders, serviceHeaders);
+    if (authToken) {
+      requestHeaders['Authorization'] = `Bearer ${authToken}`;
+    }
+  }
+
+  let body: BodyInit;
+  if (prepared.bodyMode === 'multipart' && prepared.formFields) {
+    const formData = new FormData();
+    for (const [field, value] of Object.entries(prepared.formFields)) {
+      formData.append(field, value);
+    }
+    formData.append(prepared.fileFieldName ?? 'file', blob, fileName);
+    body = formData;
+    // No Content-Type — fetch adds the multipart boundary.
+  } else {
+    body = blob;
+    if (!requestHeaders['Content-Type']) {
+      requestHeaders['Content-Type'] = 'audio/mp3';
+    }
+  }
+
+  return {
+    method: prepared.method,
+    body,
+    headers: requestHeaders,
+    credentials: prepared.attachAuth ? 'include' : 'omit',
+  };
+}
+
+/**
+ * Upload a file with retry logic, using the prepared request from the provider.
+ */
+async function uploadWithRetry(
+  prepared: PreparedUpload,
+  fileName: string,
+  blob: Blob,
+  serviceHeaders: Record<string, string>
 ): Promise<UploadResult> {
   let lastError = 'Upload failed after retries';
   let lastStatusCode: number | undefined;
 
   for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
     try {
-      const fullUrl = uploadUrl.endsWith('/')
-        ? `${uploadUrl}${fileName}`
-        : `${uploadUrl}/${fileName}`;
-
-      const requestHeaders: Record<string, string> = {
-        'Content-Type': 'audio/mp3',
-        ...headers,
-      };
-
-      // Apply current auth token
-      if (authToken) {
-        requestHeaders['Authorization'] = `Bearer ${authToken}`;
-      }
-
-      const response = await fetch(fullUrl, {
-        method: 'POST',
-        body: blob,
-        headers: requestHeaders,
-        credentials: 'include',
-      });
+      const response = await fetch(prepared.url, buildUploadInit(prepared, fileName, blob, serviceHeaders));
 
       if (response.ok) {
         return { success: true };
@@ -189,7 +214,8 @@ function sleep(ms: number): Promise<void> {
 async function handleCompressAndUpload(
   audioFrames: Float32Array,
   fileName: string,
-  uploadUrl: string,
+  storageProvider: string,
+  upload: unknown,
   headers: Record<string, string>,
   sourcePort: MessagePort
 ): Promise<void> {
@@ -213,7 +239,25 @@ async function handleCompressAndUpload(
       chunkData: encoded.chunks,
     });
 
-    const result = await uploadWithRetry(uploadUrl, fileName, encoded.blob, headers);
+    // Build the provider-specific request — failures reported as a failed upload.
+    let prepared: PreparedUpload;
+    try {
+      prepared = getStorageProvider(storageProvider).prepareUpload({
+        fileName,
+        blob: encoded.blob,
+        upload,
+      });
+    } catch (prepError: any) {
+      sendToPort(sourcePort, {
+        type: 'upload_failed',
+        fileName,
+        error: prepError?.message ?? 'Failed to prepare upload',
+        chunkData: encoded.chunks,
+      });
+      return;
+    }
+
+    const result = await uploadWithRetry(prepared, fileName, encoded.blob, headers);
 
     if (result.success) {
       sendToPort(sourcePort, { type: 'upload_success', fileName });
@@ -251,7 +295,8 @@ function handleMessage(message: MainToWorkerMessage, sourcePort: MessagePort): v
       const uploadPromise = handleCompressAndUpload(
         message.audioFrames,
         message.fileName,
-        message.uploadUrl,
+        message.storageProvider,
+        message.upload,
         message.headers,
         sourcePort
       );

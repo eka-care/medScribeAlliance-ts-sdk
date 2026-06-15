@@ -188,19 +188,23 @@ export class IpcTransport implements ITransport {
   private buildHeaders(config: TransportRequest): Record<string, string> {
     const headers: Record<string, string> = {};
 
+    // Presigned uploads authenticate via signed fields — no service auth/flavour.
+    const isExternalUpload = config.isUpload === true && config.attachAuth === false;
+
     if (!config.isUpload) {
       headers['Content-Type'] = 'application/json';
       headers['Accept'] = 'application/json';
-    } else {
+    } else if (!config.uploadFormFields) {
       headers['Content-Type'] = 'audio/mp3';
     }
 
-    if (this.accessToken) {
-      headers['Authorization'] = `Bearer ${this.accessToken}`;
-    }
-
-    if (this.flavour) {
-      headers['flavour'] = this.flavour;
+    if (!isExternalUpload) {
+      if (this.accessToken) {
+        headers['Authorization'] = `Bearer ${this.accessToken}`;
+      }
+      if (this.flavour) {
+        headers['flavour'] = this.flavour;
+      }
     }
 
     if (config.headers) {
@@ -223,10 +227,18 @@ export class IpcTransport implements ITransport {
     };
 
     if (config.isUpload && config.uploadBlob) {
-      // Serialize blob to base64 for IPC transfer
+      // Serialize the file bytes to base64 for IPC transfer.
       const arrayBuffer = await config.uploadBlob.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
       ipcRequest.blobData = this.uint8ArrayToBase64(uint8Array);
+
+      // FormData can't cross IPC — forward fields so the host builds the multipart.
+      // TODO: requires Electron host support for multipart-from-fields uploads.
+      if (config.uploadFormFields) {
+        ipcRequest.uploadFormFields = config.uploadFormFields;
+        ipcRequest.uploadFileFieldName = config.uploadFileFieldName ?? 'file';
+        ipcRequest.uploadFileName = config.uploadFileName;
+      }
     } else if (config.body !== undefined) {
       ipcRequest.body = config.body;
     }

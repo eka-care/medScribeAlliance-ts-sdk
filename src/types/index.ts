@@ -34,6 +34,7 @@ export type {
 export type {
   CreateSessionRequest,
   CreateSessionResponse,
+  SessionUploadInfo,
   EndSessionRequest,
   EndSessionResponse,
   GetSessionStatusResponse,
@@ -56,6 +57,7 @@ export type {
   StopRecordingResult,
   EndRecordingResult,
   RetryUploadResult,
+  UploadAudioFileResult,
   AudioChunkInfo,
   UploadProgressCallback,
 } from './recording';

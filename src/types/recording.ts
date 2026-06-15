@@ -2,7 +2,12 @@
  * Recording types
  */
 
-import { CreateSessionResponse, EndSessionResponse, PatientDetails } from './session';
+import {
+  CreateSessionResponse,
+  EndSessionResponse,
+  PatientDetails,
+  SessionUploadInfo,
+} from './session';
 
 export interface RecordingOptions {
   templates: string[] | [];
@@ -20,7 +25,9 @@ export interface RecordingOptions {
 
 export interface RecorderConfig {
   accessToken?: string;
-  uploadUrl: string;
+  /** Provider-specific upload payload from the create-session response. */
+  upload: SessionUploadInfo;
+  storageProvider: string;
   uploadHeaders: Record<string, string>;
   sessionId: string;
 }
@@ -68,6 +75,18 @@ export interface RetryUploadResult {
   succeeded: number;
   /** File names that still failed after retry */
   stillFailed: string[];
+}
+
+/** Result of ScribeClient.uploadAudioFile() — the storage backend's full response. */
+export interface UploadAudioFileResult {
+  /** The storage object name used. */
+  fileName: string;
+  /** HTTP status from the storage backend (e.g. 204 for an S3 presigned POST). */
+  status: number;
+  /** Response headers from the storage backend (e.g. ETag). */
+  headers: Record<string, string>;
+  /** Raw response body from the storage backend (often empty for S3). */
+  response: unknown;
 }
 
 export type UploadProgressCallback = (successFiles: string[], totalCount: number) => void;

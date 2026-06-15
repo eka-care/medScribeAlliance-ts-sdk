@@ -138,6 +138,9 @@ export enum ErrorCode {
   STOP_FAILED = 'stop_failed',
   INTERNAL_RETRY_FAILED = 'internal_retry_failed',
   SESSION_END_FAILED = 'session_end_failed',
+
+  // Storage providers
+  UNSUPPORTED_STORAGE_PROVIDER = 'unsupported_storage_provider',
 }
 
 export enum HttpStatus {

@@ -9,7 +9,7 @@
  * - Provide lists of successful/failed uploads
  *
  * This class does NOT handle upload logic — that's delegated to WorkerManager.
- * File naming follows the protocol spec: audio_{sequence_number}.{extension}
+ * File naming: {sequence_number}.{extension} (1-based), e.g. "1.mp3".
  */
 
 import { AudioChunkInfo } from '../types';
@@ -54,12 +54,12 @@ export class AudioFileManager {
   }
 
   /**
-   * Generate the next chunk file name per protocol spec.
-   * Format: audio_{sequence_number}.{extension} (1-based index)
+   * Generate the next chunk file name.
+   * Format: {sequence_number}.{extension} (1-based index), e.g. "1.mp3".
    */
   getNextFileName(): string {
     const index = this.chunks.length + 1;
-    return `audio_${index}.${OUTPUT_FORMAT}`;
+    return `${index}.${OUTPUT_FORMAT}`;
   }
 
   /**

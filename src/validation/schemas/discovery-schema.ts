@@ -64,6 +64,7 @@ export const DiscoveryResponseSchema = z.object({
     upload_methods: z.array(z.string()).optional(),
     webhook_delivery: z.boolean().optional(),
     client_sdk_delivery: z.boolean().optional(),
+    storage_provider: z.string().optional(),
   }),
   models: z.array(ModelSchema).optional().default([]),
   languages: z.object({

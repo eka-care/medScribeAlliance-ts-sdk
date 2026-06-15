@@ -44,6 +44,7 @@ export interface CapabilitiesInfo {
   upload_methods?: string[];
   webhook_delivery?: boolean;
   client_sdk_delivery?: boolean;
+  storage_provider?: string;
 }
 
 export interface ModelConfig {
@@ -75,6 +76,7 @@ export interface ResolvedConfig {
   autoDetectLanguage: boolean;
   supportedAudioFormats: string[];
   supportedUploadMethods: string[];
+  storageProvider: string;
   maxChunkDurationSeconds: number;
   /** modelId -> max session duration in seconds */
   maxSessionDurationSeconds: Map<string, number>;

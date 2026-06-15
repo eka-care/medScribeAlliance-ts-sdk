@@ -9,10 +9,12 @@
  */
 
 import type { IRecorder, RecorderConfig, StopRecordingResult } from '../types/recording';
-import type { CreateSessionResponse } from '../types/session';
+import type { CreateSessionResponse, SessionUploadInfo } from '../types/session';
 import type { ITransport } from '../types/transport';
 import { CallbackRegistry } from '../callbacks/callback-registry';
 import { ErrorEventType, ErrorCode, UploadEventType } from '../constants';
+import { getStorageProvider } from '../storage/storage-provider-factory';
+import { uploadFileToStorage } from '../storage/upload-file';
 
 export class SingleRecorder implements IRecorder {
   private mediaRecorder: MediaRecorder | null = null;
@@ -20,7 +22,8 @@ export class SingleRecorder implements IRecorder {
   private micStream: MediaStream | null = null;
   private _isPaused: boolean = false;
 
-  private uploadUrl: string = '';
+  private uploadPayload: SessionUploadInfo = {};
+  private storageProviderName: string = '';
   private callbackRegistry: CallbackRegistry;
   private transport: ITransport;
 
@@ -35,11 +38,17 @@ export class SingleRecorder implements IRecorder {
   /**
    * Configure recorder with session details (upload URL, headers).
    */
-  initialize(session: CreateSessionResponse, config: RecorderConfig): void {
-    if (!session.upload_url) {
-      throw new Error('Upload URL is required for single recording');
+  initialize(_session: CreateSessionResponse, config: RecorderConfig): void {
+    if (!config.upload || typeof config.upload !== 'object') {
+      throw new Error('Upload payload is required for single recording');
     }
-    this.uploadUrl = session.upload_url;
+    if (!config.storageProvider) {
+      throw new Error('Storage provider is required for single recording');
+    }
+    this.uploadPayload = config.upload;
+    this.storageProviderName = config.storageProvider;
+    // Validate now — throws UnsupportedStorageProviderError for an unknown provider.
+    getStorageProvider(config.storageProvider);
     this.failedUploadData = null;
   }
 
@@ -106,20 +115,14 @@ export class SingleRecorder implements IRecorder {
     try {
       // Wait for MediaRecorder to finish
       const audioBlob = await this.stopMediaRecorder();
-      const fileName = `audio_0.${this.getFileExtension()}`;
-
-      // Upload via ITransport (not raw fetch — works with HTTP and IPC)
-      const fullUrl = this.uploadUrl.endsWith('/')
-        ? `${this.uploadUrl}${fileName}`
-        : `${this.uploadUrl}/${fileName}`;
+      const fileName = `1.${this.getFileExtension()}`;
 
       try {
-        // Auth handled by transport — no stale header override
-        await this.transport.request({
-          method: 'POST',
-          url: fullUrl,
-          isUpload: true,
-          uploadBlob: audioBlob,
+        await uploadFileToStorage(this.transport, {
+          fileName,
+          blob: audioBlob,
+          upload: this.uploadPayload,
+          storageProvider: this.storageProviderName,
         });
 
         this.callbackRegistry.dispatch('onUploadEvent', {
