@@ -285,11 +285,13 @@ export class SessionManager {
    * Poll for session completion.
    * Keeps checking getSessionStatus until the session reaches a terminal state
    * (completed, partial, or failed) or the max attempts are exhausted.
+   * Pass templateId to filter the returned status for a specific template.
    */
   async pollForCompletion(
     baseUrl: string,
     sessionId?: string,
-    options?: PollOptions
+    options?: PollOptions,
+    templateId?: string
   ): Promise<ApiCallResult<GetSessionStatusResponse>> {
     try {
       const id = sessionId ?? this.currentSession?.session_id;
@@ -330,7 +332,7 @@ export class SessionManager {
           );
         }
 
-        const statusResult = await this.getSessionStatus(baseUrl, id);
+        const statusResult = await this.getSessionStatus(baseUrl, id, templateId);
         const status = statusResult.data;
 
         // Notify progress callback

@@ -343,7 +343,7 @@ export class ScribeClient {
     const baseUrl = this.getEffectiveBaseUrl();
     if (options?.poll) {
       return this.wrapResult(() =>
-        this.sessionManager.pollForCompletion(baseUrl, sessionId, options.poll)
+        this.sessionManager.pollForCompletion(baseUrl, sessionId, options.poll, options.templateId)
       );
     }
     return this.wrapResult(() =>
