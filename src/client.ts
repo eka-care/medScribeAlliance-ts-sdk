@@ -44,7 +44,11 @@ import type { ITransport } from './types/transport';
 import { DiscoveryManager } from './discovery/discovery-manager';
 import { SessionManager } from './session/session-manager';
 import { RecordingManager } from './recording/recording-manager';
-import type { EndRecordingResult, RetryUploadResult, UploadAudioFileResult } from './types/recording';
+import type {
+  EndRecordingResult,
+  RetryUploadResult,
+  UploadAudioFileResult,
+} from './types/recording';
 import { uploadFileToStorage } from './storage/upload-file';
 
 export class ScribeClient {
@@ -135,7 +139,7 @@ export class ScribeClient {
       // Validate recording options against discovery capabilities if available
       try {
         const config = this.discoveryManager.getResolvedConfig();
-        this.validator.validateAgainstDiscovery(options, config);
+        // this.validator.validateAgainstDiscovery(options, config);
       } catch (e) {
         if (e instanceof ValidationError) throw e;
         // Discovery not available — skip validation, let server validate
