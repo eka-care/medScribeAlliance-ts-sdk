@@ -63,7 +63,7 @@ export type AudioChunkInfo = {
   timestamp: { st: string; et: string };
   response?: string;
 } & (
-  | { status: 'pending'; audioFrames: Float32Array; fileBlob?: undefined }
+  | { status: 'pending'; audioFrames?: Float32Array; fileBlob?: Blob }
   | { status: 'success'; audioFrames?: undefined; fileBlob?: undefined }
   | { status: 'failure'; fileBlob: Blob; audioFrames?: undefined }
 );

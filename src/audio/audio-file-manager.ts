@@ -143,9 +143,7 @@ export class AudioFileManager {
    * Get list of file names that failed to upload.
    */
   getFailedUploads(): string[] {
-    return this.chunks
-      .filter((chunk) => chunk.status === 'failure')
-      .map((chunk) => chunk.fileName);
+    return this.chunks.filter((chunk) => chunk.status === 'failure').map((chunk) => chunk.fileName);
   }
 
   /**
@@ -162,9 +160,20 @@ export class AudioFileManager {
   }
 
   /**
+   * Store the encoded MP3 blob on a pending chunk.
+   * This ensures the blob is available for retry.
+   */
+  storeEncodedBlob(chunkIndex: number, blob: Blob): void {
+    if (chunkIndex < 0 || chunkIndex >= this.chunks.length) return;
+    const chunk = this.chunks[chunkIndex];
+    if (chunk.status === 'pending') {
+      chunk.fileBlob = blob;
+      chunk.audioFrames = undefined;
+    }
+  }
+
+  /**
    * Mark all chunks still in 'pending' as failed.
-   * Called after waitForAllUploads() returns (including timeout)
-   * to ensure no chunk is silently lost.
    */
   markPendingAsFailed(): void {
     for (let i = 0; i < this.chunks.length; i++) {
@@ -174,7 +183,7 @@ export class AudioFileManager {
           timestamp: this.chunks[i].timestamp,
           response: 'Upload did not complete (timed out or worker unresponsive)',
           status: 'failure',
-          fileBlob: new Blob(),
+          fileBlob: this.chunks[i].fileBlob ?? new Blob(),
         };
       }
     }
