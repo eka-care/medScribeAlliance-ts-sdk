@@ -701,10 +701,27 @@ export class RecordingManager {
       return { data: { retried: 0, succeeded: 0, stillFailed: [] }, httpStatus: undefined };
     }
 
-    const { upload, storageProvider: storageProviderName, failedChunks } = this.retryContext;
+    const { storageProvider: storageProviderName, failedChunks } = this.retryContext;
     const retried = failedChunks.length;
     const stillFailed: string[] = [];
     let succeeded = 0;
+
+    // Fetch fresh upload_url from session status (presigned URL may have expired)
+    let upload = this.retryContext.upload;
+    try {
+      const sessionId = this.activeSession?.session_id;
+      if (sessionId) {
+        const statusResult = await this.sessionManager.getSessionStatus(this.activeBaseUrl, sessionId);
+        if (statusResult.data.upload_url) {
+          upload = statusResult.data.upload_url;
+          this.retryContext.upload = upload;
+        }
+      }
+    } catch (error) {
+      if (this.config.debug) {
+        console.log('[ScribeSDK] Failed to refresh upload_url, using existing:', error);
+      }
+    }
 
     if (this.config.debug) {
       console.log(`[ScribeSDK] Retrying ${retried} failed uploads`);

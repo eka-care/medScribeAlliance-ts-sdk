@@ -19,8 +19,6 @@ export interface UploadFileParams {
  * Resolve the provider, build its request, and send via the transport.
  * Returns the full storage response (status, headers, body).
  * @throws UnsupportedStorageProviderError | UploadError | TransportError
- *
- * TODO: Handle presigned URL expiration for long recordings (403 on expired policy).
  */
 export async function uploadFileToStorage(
   transport: ITransport,
