@@ -163,14 +163,14 @@ export class WorkerManager {
         this.allUploadsResolver = resolve;
         this.postToWorker({ type: 'wait_for_all_uploads' });
 
-        // Safety timeout — resolve after 30s if worker never responds
+        // Safety timeout
         setTimeout(() => {
           if (this.allUploadsResolver) {
-            console.warn('[ScribeSDK] waitForAllUploads timed out after 15s');
+            console.warn('[ScribeSDK] waitForAllUploads timed out after 30s');
             this.allUploadsResolver();
             this.allUploadsResolver = null;
           }
-        }, 15_000);
+        }, 30_000);
       });
     }
 
@@ -249,6 +249,13 @@ export class WorkerManager {
     switch (message.type) {
       case 'chunk_encoded': {
         const chunkIndex = this.findChunkIndex(message.fileName);
+
+        // Store encoded blob for retry if upload times out
+        if (chunkIndex >= 0 && message.chunkData && message.chunkData.length > 0) {
+          const encodedBlob = new Blob(message.chunkData as BlobPart[], { type: 'audio/mp3' });
+          this.fileManager.storeEncodedBlob(chunkIndex, encodedBlob);
+        }
+
         this.callbackRegistry.dispatch('onAudioEvent', {
           type: AudioEventType.CHUNK_READY,
           timestamp: new Date().toISOString(),
@@ -276,7 +283,7 @@ export class WorkerManager {
           const retryBlob =
             message.chunkData && message.chunkData.length > 0
               ? new Blob(message.chunkData as BlobPart[], { type: 'audio/mp3' })
-              : new Blob();
+              : this.fileManager.getChunks()[chunkIndex]?.fileBlob ?? new Blob();
           this.fileManager.markFailure(chunkIndex, retryBlob, message.error);
         }
         this.callbackRegistry.dispatch('onUploadEvent', {

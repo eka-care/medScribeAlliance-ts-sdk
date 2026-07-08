@@ -69,6 +69,7 @@ export interface GetSessionStatusResponse {
   error?: { code: string; message: string; details?: Record<string, any> };
   patient_details?: PatientDetails;
   message?: string;
+  upload_url?: SessionUploadInfo;
 }
 
 export interface TemplateEntry {
