@@ -79,7 +79,11 @@ export class RecordingManager {
     upload: SessionUploadInfo;
     storageProvider: string;
     failedChunks: Array<{ fileName: string; blob: Blob }>;
+    version?: string; // reused when refreshing upload_url on retry
   } | null = null;
+
+  // Captured at start(), snapshotted into retryContext at stop time
+  private currentRecordingVersion: string | undefined = undefined;
 
   constructor(
     callbackRegistry: CallbackRegistry,
@@ -128,6 +132,7 @@ export class RecordingManager {
     // Clear any previous retry context
     this.retryContext = null;
     this.activeBaseUrl = baseUrl;
+    this.currentRecordingVersion = options.version;
 
     // Determine upload type — default to 'chunked'
     const uploadType = options.uploadType ?? 'chunked';
@@ -152,7 +157,11 @@ export class RecordingManager {
       let session: CreateSessionResponse;
       let createSessionHttpStatus: number | undefined;
       try {
-        const createResult = await this.sessionManager.createSession(baseUrl, sessionRequest);
+        const createResult = await this.sessionManager.createSession(
+          baseUrl,
+          sessionRequest,
+          options.version
+        );
         session = createResult.data;
         createSessionHttpStatus = createResult.httpStatus;
       } catch (error) {
@@ -212,7 +221,9 @@ export class RecordingManager {
       try {
         recorder.initialize(session, recorderConfig);
       } catch (error) {
-        try { recorder.reset(); } catch {}
+        try {
+          recorder.reset();
+        } catch {}
         if (gen === this._startGeneration) {
           this.cleanupRecordingState();
           this.dispatchStartError(
@@ -233,7 +244,9 @@ export class RecordingManager {
       try {
         await recorder.start(options.deviceId);
       } catch (error) {
-        try { recorder.reset(); } catch {}
+        try {
+          recorder.reset();
+        } catch {}
         if (gen === this._startGeneration) {
           this.cleanupRecordingState();
           this.dispatchStartError(ErrorEventType.VAD_ERROR, ErrorCode.VAD_START_FAILED, error);
@@ -243,7 +256,9 @@ export class RecordingManager {
 
       // Abort if superseded during recorder.start() (mic/VAD acquisition)
       if (gen !== this._startGeneration) {
-        try { recorder.reset(); } catch {}
+        try {
+          recorder.reset();
+        } catch {}
         throw new ScribeError('Recording start was superseded by a concurrent operation.');
       }
 
@@ -294,6 +309,7 @@ export class RecordingManager {
     // Clear any previous retry context
     this.retryContext = null;
     this.activeBaseUrl = baseUrl;
+    this.currentRecordingVersion = undefined; // external session — version unknown
 
     const uploadType = options?.uploadType ?? 'chunked';
 
@@ -332,7 +348,9 @@ export class RecordingManager {
       try {
         recorder.initialize(session, recorderConfig);
       } catch (error) {
-        try { recorder.reset(); } catch {}
+        try {
+          recorder.reset();
+        } catch {}
         if (gen === this._startGeneration) {
           this.cleanupRecordingState();
           this.dispatchStartError(
@@ -353,7 +371,9 @@ export class RecordingManager {
       try {
         await recorder.start(options?.deviceId);
       } catch (error) {
-        try { recorder.reset(); } catch {}
+        try {
+          recorder.reset();
+        } catch {}
         if (gen === this._startGeneration) {
           this.cleanupRecordingState();
           this.dispatchStartError(ErrorEventType.VAD_ERROR, ErrorCode.VAD_START_FAILED, error);
@@ -363,7 +383,9 @@ export class RecordingManager {
 
       // Abort if superseded during recorder.start() (mic/VAD acquisition)
       if (gen !== this._startGeneration) {
-        try { recorder.reset(); } catch {}
+        try {
+          recorder.reset();
+        } catch {}
         throw new ScribeError('Recording start was superseded by a concurrent operation.');
       }
 
@@ -711,7 +733,12 @@ export class RecordingManager {
     try {
       const sessionId = this.activeSession?.session_id;
       if (sessionId) {
-        const statusResult = await this.sessionManager.getSessionStatus(this.activeBaseUrl, sessionId);
+        const statusResult = await this.sessionManager.getSessionStatus(
+          this.activeBaseUrl,
+          sessionId,
+          undefined,
+          this.retryContext.version
+        );
         if (statusResult.data.upload_url) {
           upload = statusResult.data.upload_url;
           this.retryContext.upload = upload;
@@ -895,6 +922,7 @@ export class RecordingManager {
       upload: this.activeSession.upload_url,
       storageProvider: this.getStorageProviderName(),
       failedChunks,
+      version: this.currentRecordingVersion,
     };
 
     if (this.config.debug) {

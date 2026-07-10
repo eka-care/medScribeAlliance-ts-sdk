@@ -363,6 +363,7 @@ interface RecordingOptions {
   deviceId?: string;                     // Specific microphone device ID
   sessionMode?: string;                  // 'consultation' | 'dictation'
   patientDetails?: PatientDetails;       // Patient info
+  version?: string;                      // Optional API version (sent as a `version` query param on create-session)
   txnId?: string;                        // External transaction ID
 }
 ```

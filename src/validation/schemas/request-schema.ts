@@ -30,6 +30,7 @@ export const RecordingOptionsSchema = z.object({
     })
     .optional(),
   sessionId: z.string().optional(),
+  version: z.string().optional(),
 });
 
 export type ValidatedRecordingOptions = z.infer<typeof RecordingOptionsSchema>;

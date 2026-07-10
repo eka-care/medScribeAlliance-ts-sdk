@@ -21,6 +21,8 @@ export interface RecordingOptions {
   sessionMode?: string;
   patientDetails?: PatientDetails;
   sessionId?: string;
+  /** Optional API version; sent as a `version` query param on the create-session request. */
+  version?: string;
 }
 
 export interface RecorderConfig {
