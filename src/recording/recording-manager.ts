@@ -79,11 +79,7 @@ export class RecordingManager {
     upload: SessionUploadInfo;
     storageProvider: string;
     failedChunks: Array<{ fileName: string; blob: Blob }>;
-    version?: string; // reused when refreshing upload_url on retry
   } | null = null;
-
-  // Captured at start(), snapshotted into retryContext at stop time
-  private currentRecordingVersion: string | undefined = undefined;
 
   constructor(
     callbackRegistry: CallbackRegistry,
@@ -132,7 +128,6 @@ export class RecordingManager {
     // Clear any previous retry context
     this.retryContext = null;
     this.activeBaseUrl = baseUrl;
-    this.currentRecordingVersion = options.version;
 
     // Determine upload type — default to 'chunked'
     const uploadType = options.uploadType ?? 'chunked';
@@ -309,7 +304,6 @@ export class RecordingManager {
     // Clear any previous retry context
     this.retryContext = null;
     this.activeBaseUrl = baseUrl;
-    this.currentRecordingVersion = undefined; // external session — version unknown
 
     const uploadType = options?.uploadType ?? 'chunked';
 
@@ -454,7 +448,7 @@ export class RecordingManager {
     }
   }
 
-  async stop(): Promise<ApiCallResult<EndRecordingResult>> {
+  async stop(version?: string): Promise<ApiCallResult<EndRecordingResult>> {
     if (!this.recorder || !this._isRecording) {
       return {
         data: { failedUploads: [], totalFiles: 0, sessionEnded: false },
@@ -480,7 +474,7 @@ export class RecordingManager {
       let currentFailedUploads = stopResult.failedUploads;
       if (currentFailedUploads.length > 0) {
         try {
-          const retryResult = await this.retryFailedUploads();
+          const retryResult = await this.retryFailedUploads(version);
           currentFailedUploads = retryResult.data.stillFailed;
         } catch (retryError) {
           console.error('[ScribeSDK] Internal retry pass failed:', retryError);
@@ -714,7 +708,7 @@ export class RecordingManager {
    * Each file is re-uploaded via transport.request() with retry logic.
    * Successfully retried files are removed from the retry context.
    */
-  async retryFailedUploads(): Promise<ApiCallResult<RetryUploadResult>> {
+  async retryFailedUploads(version?: string): Promise<ApiCallResult<RetryUploadResult>> {
     if (this._isRecording) {
       throw new ScribeError('Cannot retry uploads while recording is active.');
     }
@@ -737,7 +731,7 @@ export class RecordingManager {
           this.activeBaseUrl,
           sessionId,
           undefined,
-          this.retryContext.version
+          version
         );
         if (statusResult.data.upload_url) {
           upload = statusResult.data.upload_url;
@@ -922,7 +916,6 @@ export class RecordingManager {
       upload: this.activeSession.upload_url,
       storageProvider: this.getStorageProviderName(),
       failedChunks,
-      version: this.currentRecordingVersion,
     };
 
     if (this.config.debug) {

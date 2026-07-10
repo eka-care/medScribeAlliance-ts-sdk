@@ -202,8 +202,8 @@ export class ScribeClient {
    * the SDK runs one internal retry pass; if files still fail, the session
    * is NOT ended and the result reports `sessionEnded: false`.
    */
-  async endRecording(): Promise<SDKResult<EndRecordingResult>> {
-    return this.wrapResult(() => this.recordingManager.stop());
+  async endRecording(version?: string): Promise<SDKResult<EndRecordingResult>> {
+    return this.wrapResult(() => this.recordingManager.stop(version));
   }
 
   /**
@@ -213,8 +213,8 @@ export class ScribeClient {
    * `hasFailedUploads()` is true). After retrying, call `endSession()` to
    * finalize. Retry context is cleared on `reset()` or the next `startRecording()`.
    */
-  async retryFailedUploads(): Promise<SDKResult<RetryUploadResult>> {
-    return this.wrapResult(() => this.recordingManager.retryFailedUploads());
+  async retryFailedUploads(version?: string): Promise<SDKResult<RetryUploadResult>> {
+    return this.wrapResult(() => this.recordingManager.retryFailedUploads(version));
   }
 
   /**
