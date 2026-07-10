@@ -395,8 +395,8 @@ interface RecordingOptions {
 
 | Method | Returns | Description |
 |---|---|---|
-| `createSession(request)` | `SDKResult<CreateSessionResponse>` | Create a session without starting a recording. |
-| `getSessionStatus(sessionId?, options?)` | `SDKResult<GetSessionStatusResponse>` | Get status. Supports `poll` and `templateId` options. |
+| `createSession(request, version?)` | `SDKResult<CreateSessionResponse>` | Create a session without starting a recording. Optional `version` is sent as a `version` query param. |
+| `getSessionStatus(sessionId?, options?)` | `SDKResult<GetSessionStatusResponse>` | Get status. Supports `poll`, `templateId`, and `version` options (`version` sent as a query param). |
 | `getCurrentSession()` | `CreateSessionResponse \| null` | Get the active session if any. |
 | `updateSession(request, sessionId?)` | `SDKResult<PatchSessionResponse>` | Patch session (patient details, status, etc.). |
 | `processTemplate(templateId, sessionId?)` | `SDKResult<ProcessTemplateResponse>` | Trigger processing for a specific template. |

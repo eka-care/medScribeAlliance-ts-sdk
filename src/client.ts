@@ -296,10 +296,13 @@ export class ScribeClient {
    * Create a session directly (without starting a recording).
    */
   async createSession(
-    sessionRequest: CreateSessionRequest
+    sessionRequest: CreateSessionRequest,
+    version?: string
   ): Promise<SDKResult<CreateSessionResponse>> {
     const baseUrl = this.getEffectiveBaseUrl();
-    return this.wrapResult(() => this.sessionManager.createSession(baseUrl, sessionRequest));
+    return this.wrapResult(() =>
+      this.sessionManager.createSession(baseUrl, sessionRequest, version)
+    );
   }
 
   /**
@@ -339,19 +342,26 @@ export class ScribeClient {
    * terminal state (completed, partial, failed, expired) or times out.
    *
    * Pass `templateId` to filter status for a specific template.
+   * Pass `version` to target a specific API version (attached as a query param).
    */
   async getSessionStatus(
     sessionId?: string,
-    options?: { poll?: PollOptions; templateId?: string }
+    options?: { poll?: PollOptions; templateId?: string; version?: string }
   ): Promise<SDKResult<GetSessionStatusResponse>> {
     const baseUrl = this.getEffectiveBaseUrl();
     if (options?.poll) {
       return this.wrapResult(() =>
-        this.sessionManager.pollForCompletion(baseUrl, sessionId, options.poll, options.templateId)
+        this.sessionManager.pollForCompletion(
+          baseUrl,
+          sessionId,
+          options.poll,
+          options.templateId,
+          options.version
+        )
       );
     }
     return this.wrapResult(() =>
-      this.sessionManager.getSessionStatus(baseUrl, sessionId, options?.templateId)
+      this.sessionManager.getSessionStatus(baseUrl, sessionId, options?.templateId, options?.version)
     );
   }
 

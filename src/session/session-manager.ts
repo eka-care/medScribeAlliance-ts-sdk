@@ -47,12 +47,16 @@ export class SessionManager {
    */
   async createSession(
     baseUrl: string,
-    request: CreateSessionRequest
+    request: CreateSessionRequest,
+    version?: string
   ): Promise<ApiCallResult<CreateSessionResponse>> {
     try {
       this.validator.validateCreateSessionRequest(request);
 
-      const url = `${baseUrl}/sessions`;
+      let url = `${baseUrl}/sessions`;
+      if (version) {
+        url += `?version=${encodeURIComponent(version)}`;
+      }
 
       if (this.debug) {
         console.log('[ScribeSDK] Creating session:', url);
@@ -146,7 +150,8 @@ export class SessionManager {
   async getSessionStatus(
     baseUrl: string,
     sessionId?: string,
-    templateId?: string
+    templateId?: string,
+    version?: string
   ): Promise<ApiCallResult<GetSessionStatusResponse>> {
     try {
       const id = sessionId ?? this.currentSession?.session_id;
@@ -157,10 +162,15 @@ export class SessionManager {
 
       this.validator.validateSessionId(id);
 
-      let url = `${baseUrl}/sessions/${id}`;
+      const params = new URLSearchParams();
       if (templateId) {
-        url += `?template_id=${encodeURIComponent(templateId)}`;
+        params.set('template_id', templateId);
       }
+      if (version) {
+        params.set('version', version);
+      }
+      const query = params.toString();
+      const url = query ? `${baseUrl}/sessions/${id}?${query}` : `${baseUrl}/sessions/${id}`;
 
       if (this.debug) {
         console.log('[ScribeSDK] Getting session status:', id);
@@ -291,7 +301,8 @@ export class SessionManager {
     baseUrl: string,
     sessionId?: string,
     options?: PollOptions,
-    templateId?: string
+    templateId?: string,
+    version?: string
   ): Promise<ApiCallResult<GetSessionStatusResponse>> {
     try {
       const id = sessionId ?? this.currentSession?.session_id;
@@ -332,7 +343,7 @@ export class SessionManager {
           );
         }
 
-        const statusResult = await this.getSessionStatus(baseUrl, id, templateId);
+        const statusResult = await this.getSessionStatus(baseUrl, id, templateId, version);
         const status = statusResult.data;
 
         // Notify progress callback
