@@ -23,6 +23,13 @@ export interface WorkerUpdateTokenMessage {
   token: string;
 }
 
+/** Fresh upload payload sent in response to an upload_url_required request. */
+export interface WorkerUpdateUploadUrlMessage {
+  type: 'update_upload_url';
+  /** Provider-specific upload payload from a fresh getSessionStatus call. Null = no refresh available. */
+  upload: unknown | null;
+}
+
 export interface WorkerTerminateMessage {
   type: 'terminate';
 }
@@ -31,6 +38,7 @@ export type MainToWorkerMessage =
   | WorkerCompressAndUploadMessage
   | WorkerWaitForUploadsMessage
   | WorkerUpdateTokenMessage
+  | WorkerUpdateUploadUrlMessage
   | WorkerTerminateMessage;
 
 // --- Worker -> Main thread ---
@@ -61,9 +69,16 @@ export interface WorkerTokenRequiredMessage {
   type: 'token_required';
 }
 
+/** Worker hit an upload error and wants a fresh upload_url before retrying. */
+export interface WorkerUploadUrlRequiredMessage {
+  type: 'upload_url_required';
+  fileName: string;
+}
+
 export type WorkerToMainMessage =
   | WorkerChunkEncodedMessage
   | WorkerUploadSuccessMessage
   | WorkerUploadFailedMessage
   | WorkerAllUploadsCompleteMessage
-  | WorkerTokenRequiredMessage;
+  | WorkerTokenRequiredMessage
+  | WorkerUploadUrlRequiredMessage;

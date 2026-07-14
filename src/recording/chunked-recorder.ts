@@ -113,7 +113,12 @@ export class ChunkedRecorder implements IRecorder {
     }
 
     // Throws UnsupportedStorageProviderError for an unknown provider.
-    this.workerManager.setUploadConfig(config.upload, config.storageProvider, config.uploadHeaders);
+    this.workerManager.setUploadConfig(
+      config.upload,
+      config.storageProvider,
+      config.uploadHeaders,
+      config.refreshUploadUrl
+    );
 
     this.initialized = true;
   }

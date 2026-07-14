@@ -70,6 +70,8 @@ export class RecordingManager {
   private recorder: IRecorder | null = null;
   private activeSession: CreateSessionResponse | null = null;
   private activeBaseUrl: string = '';
+  // Version-aware upload_url refresher for the active recording — shared by the recorder and retry.
+  private activeUploadUrlRefresher: (() => Promise<SessionUploadInfo | null>) | null = null;
   private _isRecording: boolean = false;
   private _isStarting: boolean = false;
   private _startGeneration: number = 0;
@@ -205,12 +207,18 @@ export class RecordingManager {
       this.recorder = recorder;
 
       // 4. Initialize recorder with session details
+      this.activeUploadUrlRefresher = this.buildUploadUrlRefresher(
+        baseUrl,
+        session.session_id,
+        options.version
+      );
       const recorderConfig: RecorderConfig = {
         accessToken,
         upload: session.upload_url,
         storageProvider,
         uploadHeaders: this.buildUploadHeaders(accessToken),
         sessionId: session.session_id,
+        refreshUploadUrl: this.activeUploadUrlRefresher,
       };
 
       try {
@@ -290,7 +298,7 @@ export class RecordingManager {
   async startWithExistingSession(
     baseUrl: string,
     session: CreateSessionResponse,
-    options?: { uploadType?: string; deviceId?: string },
+    options?: { uploadType?: string; deviceId?: string; version?: string },
     accessToken?: string
   ): Promise<ApiCallResult<void>> {
     if (this._isRecording || this._isStarting) {
@@ -331,12 +339,18 @@ export class RecordingManager {
       this.recorder = recorder;
 
       // Initialize recorder with session details
+      this.activeUploadUrlRefresher = this.buildUploadUrlRefresher(
+        baseUrl,
+        session.session_id,
+        options?.version
+      );
       const recorderConfig: RecorderConfig = {
         accessToken,
         upload: session.upload_url,
         storageProvider,
         uploadHeaders: this.buildUploadHeaders(accessToken),
         sessionId: session.session_id,
+        refreshUploadUrl: this.activeUploadUrlRefresher,
       };
 
       try {
@@ -448,7 +462,7 @@ export class RecordingManager {
     }
   }
 
-  async stop(version?: string): Promise<ApiCallResult<EndRecordingResult>> {
+  async stop(): Promise<ApiCallResult<EndRecordingResult>> {
     if (!this.recorder || !this._isRecording) {
       return {
         data: { failedUploads: [], totalFiles: 0, sessionEnded: false },
@@ -474,7 +488,7 @@ export class RecordingManager {
       let currentFailedUploads = stopResult.failedUploads;
       if (currentFailedUploads.length > 0) {
         try {
-          const retryResult = await this.retryFailedUploads(version);
+          const retryResult = await this.retryFailedUploads();
           currentFailedUploads = retryResult.data.stillFailed;
         } catch (retryError) {
           console.error('[ScribeSDK] Internal retry pass failed:', retryError);
@@ -698,6 +712,7 @@ export class RecordingManager {
     }
     this.activeSession = null;
     this.activeBaseUrl = '';
+    this.activeUploadUrlRefresher = null;
     this.retryContext = null;
   }
 
@@ -708,7 +723,7 @@ export class RecordingManager {
    * Each file is re-uploaded via transport.request() with retry logic.
    * Successfully retried files are removed from the retry context.
    */
-  async retryFailedUploads(version?: string): Promise<ApiCallResult<RetryUploadResult>> {
+  async retryFailedUploads(): Promise<ApiCallResult<RetryUploadResult>> {
     if (this._isRecording) {
       throw new ScribeError('Cannot retry uploads while recording is active.');
     }
@@ -722,21 +737,13 @@ export class RecordingManager {
     const stillFailed: string[] = [];
     let succeeded = 0;
 
-    // Fetch fresh upload_url from session status (presigned URL may have expired)
+    // Refresh the (possibly expired) upload_url via this recording's stored refresher.
     let upload = this.retryContext.upload;
     try {
-      const sessionId = this.activeSession?.session_id;
-      if (sessionId) {
-        const statusResult = await this.sessionManager.getSessionStatus(
-          this.activeBaseUrl,
-          sessionId,
-          undefined,
-          version
-        );
-        if (statusResult.data.upload_url) {
-          upload = statusResult.data.upload_url;
-          this.retryContext.upload = upload;
-        }
+      const fresh = await this.activeUploadUrlRefresher?.();
+      if (fresh) {
+        upload = fresh;
+        this.retryContext.upload = fresh;
       }
     } catch (error) {
       if (this.config.debug) {
@@ -853,6 +860,25 @@ export class RecordingManager {
     return headers;
   }
 
+  // Version-aware upload_url refresher for the recorder — fetches fresh presigned payload on failure.
+  private buildUploadUrlRefresher(
+    baseUrl: string,
+    sessionId: string,
+    version?: string
+  ): () => Promise<SessionUploadInfo | null> {
+    return () => this.fetchFreshUploadUrl(baseUrl, sessionId, version);
+  }
+
+  // Single source for refreshing the presigned upload payload via getSessionStatus.
+  private async fetchFreshUploadUrl(
+    baseUrl: string,
+    sessionId: string,
+    version?: string
+  ): Promise<SessionUploadInfo | null> {
+    const status = await this.sessionManager.getSessionStatus(baseUrl, sessionId, undefined, version);
+    return status.data.upload_url ?? null;
+  }
+
   /**
    * Apply discovery-driven overrides to ChunkedRecorder's VAD config.
    * For example, max_chunk_duration_seconds from discovery overrides the default.
@@ -930,6 +956,7 @@ export class RecordingManager {
     this.recorder = null;
     this.activeSession = null;
     this.activeBaseUrl = '';
+    this.activeUploadUrlRefresher = null;
     this._isRecording = false;
     this._isStarting = false;
   }
@@ -945,6 +972,6 @@ export class RecordingManager {
     this.recorder = null;
     this._isRecording = false;
     this._isStarting = false;
-    // Deliberately preserved: activeSession, activeBaseUrl, retryContext
+    // Deliberately preserved: activeSession, activeBaseUrl, activeUploadUrlRefresher, retryContext
   }
 }
