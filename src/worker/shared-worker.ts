@@ -177,7 +177,11 @@ async function refreshPreparedUpload(
     return current;
   }
   try {
-    return getStorageProvider(storageProvider).prepareUpload({ fileName, blob, upload: freshUpload });
+    return getStorageProvider(storageProvider).prepareUpload({
+      fileName,
+      blob,
+      upload: freshUpload,
+    });
   } catch {
     return current;
   }
@@ -197,7 +201,10 @@ async function uploadWithRetry(
 
   for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
     try {
-      const response = await fetch(prepared.url, buildUploadInit(prepared, fileName, blob, serviceHeaders));
+      const response = await fetch(
+        prepared.url,
+        buildUploadInit(prepared, fileName, blob, serviceHeaders)
+      );
 
       if (response.ok) {
         return { success: true };
@@ -218,7 +225,13 @@ async function uploadWithRetry(
       // Any other upload error (e.g. expired presigned URL → 403) — fetch a fresh
       // upload_url from the main thread and retry with it.
       if (attempt < DEFAULT_MAX_RETRIES) {
-        prepared = await refreshPreparedUpload(sourcePort, storageProvider, fileName, blob, prepared);
+        prepared = await refreshPreparedUpload(
+          sourcePort,
+          storageProvider,
+          fileName,
+          blob,
+          prepared
+        );
         await sleep(DEFAULT_RETRY_DELAY_MS);
         continue;
       }
@@ -228,7 +241,13 @@ async function uploadWithRetry(
       lastError = e?.message ?? 'Network error';
       // Network error — refresh upload_url and retry.
       if (attempt < DEFAULT_MAX_RETRIES) {
-        prepared = await refreshPreparedUpload(sourcePort, storageProvider, fileName, blob, prepared);
+        prepared = await refreshPreparedUpload(
+          sourcePort,
+          storageProvider,
+          fileName,
+          blob,
+          prepared
+        );
         await sleep(DEFAULT_RETRY_DELAY_MS);
       }
     }
