@@ -382,7 +382,7 @@ interface RecordingOptions {
 | Method | Returns | Description |
 |---|---|---|
 | `startRecording(options)` | `SDKResult<CreateSessionResponse>` | Create session + start mic + begin upload. |
-| `startRecordingWithSession(session, options?)` | `SDKResult<void>` | Attach recorder to an existing session. |
+| `startRecordingWithSession(session, options?)` | `SDKResult<void>` | Attach recorder to an existing session. `options.version` (the version the session was created with) is reused when refreshing `upload_url` on upload failure. |
 | `pauseRecording()` | `void` | Pause VAD (mic stays open, no chunks created). |
 | `resumeRecording()` | `void` | Resume VAD processing. |
 | `endRecording()` | `SDKResult<StopRecordingResult>` | Stop mic, flush audio, wait for uploads, end session. |

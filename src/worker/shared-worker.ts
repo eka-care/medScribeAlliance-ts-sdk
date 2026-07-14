@@ -41,6 +41,18 @@ const pendingUploadsPerPort = new Map<MessagePort, Set<Promise<void>>>();
 // Token refresh coordination — resolve when update_auth_token arrives
 let tokenUpdateResolver: (() => void) | null = null;
 
+// upload_url refresh coordination — per-port set of waiters (concurrent chunks can each
+// await). The refreshed upload_url is session-wide, so one update resolves all of them.
+const uploadUrlResolvers = new Map<MessagePort, Set<(upload: unknown | null) => void>>();
+
+// Resolve (and clear) every upload_url waiter for a port with the given payload.
+function resolveUploadUrlWaiters(port: MessagePort, upload: unknown | null): void {
+  const waiters = uploadUrlResolvers.get(port);
+  if (!waiters) return;
+  uploadUrlResolvers.delete(port);
+  for (const resolve of waiters) resolve(upload);
+}
+
 /**
  * Send a message to a specific port.
  */
@@ -88,6 +100,26 @@ function waitForTokenUpdate(): Promise<void> {
   });
 }
 
+// Wait for a fresh upload payload from the main thread; null if none arrives before the timeout.
+function waitForUploadUrlUpdate(port: MessagePort): Promise<unknown | null> {
+  return new Promise<unknown | null>((resolve) => {
+    let waiters = uploadUrlResolvers.get(port);
+    if (!waiters) {
+      waiters = new Set();
+      uploadUrlResolvers.set(port, waiters);
+    }
+    waiters.add(resolve);
+    setTimeout(() => {
+      const current = uploadUrlResolvers.get(port);
+      if (current?.has(resolve)) {
+        current.delete(resolve);
+        if (current.size === 0) uploadUrlResolvers.delete(port);
+        resolve(null);
+      }
+    }, TOKEN_UPDATE_TIMEOUT_MS);
+  });
+}
+
 /**
  * Build the fetch RequestInit for a prepared upload.
  * Service auth (Bearer/flavour/credentials) is attached only when attachAuth is true.
@@ -131,21 +163,48 @@ function buildUploadInit(
   };
 }
 
-/**
- * Upload a file with retry logic, using the prepared request from the provider.
- */
+// Ask the main thread for a fresh upload_url and rebuild the request; fall back to current on failure.
+async function refreshPreparedUpload(
+  port: MessagePort,
+  storageProvider: string,
+  fileName: string,
+  blob: Blob,
+  current: PreparedUpload
+): Promise<PreparedUpload> {
+  sendToPort(port, { type: 'upload_url_required', fileName });
+  const freshUpload = await waitForUploadUrlUpdate(port);
+  if (!freshUpload) {
+    return current;
+  }
+  try {
+    return getStorageProvider(storageProvider).prepareUpload({
+      fileName,
+      blob,
+      upload: freshUpload,
+    });
+  } catch {
+    return current;
+  }
+}
+
+// Upload with retry; on any non-401 error, refresh the (possibly expired) upload_url and retry.
 async function uploadWithRetry(
   prepared: PreparedUpload,
   fileName: string,
   blob: Blob,
-  serviceHeaders: Record<string, string>
+  serviceHeaders: Record<string, string>,
+  storageProvider: string,
+  sourcePort: MessagePort
 ): Promise<UploadResult> {
   let lastError = 'Upload failed after retries';
   let lastStatusCode: number | undefined;
 
   for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
     try {
-      const response = await fetch(prepared.url, buildUploadInit(prepared, fileName, blob, serviceHeaders));
+      const response = await fetch(
+        prepared.url,
+        buildUploadInit(prepared, fileName, blob, serviceHeaders)
+      );
 
       if (response.ok) {
         return { success: true };
@@ -155,31 +214,40 @@ async function uploadWithRetry(
       lastStatusCode = response.status;
       lastError = await parseErrorMessage(response);
 
-      // 401 — request a new token from main thread, wait for it
-      if (response.status === 401) {
+      // Main-service auth failure (only when we attach our own Bearer token) — refresh token.
+      // Presigned uploads (attachAuth=false) fall through to the upload_url refresh below.
+      if (response.status === 401 && prepared.attachAuth) {
         broadcast({ type: 'token_required' });
         await waitForTokenUpdate();
         continue;
       }
 
-      // Non-retryable client errors (4xx except 408, 429)
-      if (
-        response.status >= 400 &&
-        response.status < 500 &&
-        response.status !== 408 &&
-        response.status !== 429
-      ) {
-        return { success: false, error: lastError, statusCode: lastStatusCode };
+      // Any other upload error (e.g. expired presigned URL → 403) — fetch a fresh
+      // upload_url from the main thread and retry with it.
+      if (attempt < DEFAULT_MAX_RETRIES) {
+        prepared = await refreshPreparedUpload(
+          sourcePort,
+          storageProvider,
+          fileName,
+          blob,
+          prepared
+        );
+        await sleep(DEFAULT_RETRY_DELAY_MS);
+        continue;
       }
 
-      // Retryable error — wait and retry
-      if (attempt < DEFAULT_MAX_RETRIES) {
-        await sleep(DEFAULT_RETRY_DELAY_MS);
-      }
+      return { success: false, error: lastError, statusCode: lastStatusCode };
     } catch (e: any) {
       lastError = e?.message ?? 'Network error';
-      // Network error — retry
+      // Network error — refresh upload_url and retry.
       if (attempt < DEFAULT_MAX_RETRIES) {
+        prepared = await refreshPreparedUpload(
+          sourcePort,
+          storageProvider,
+          fileName,
+          blob,
+          prepared
+        );
         await sleep(DEFAULT_RETRY_DELAY_MS);
       }
     }
@@ -257,7 +325,14 @@ async function handleCompressAndUpload(
       return;
     }
 
-    const result = await uploadWithRetry(prepared, fileName, encoded.blob, headers);
+    const result = await uploadWithRetry(
+      prepared,
+      fileName,
+      encoded.blob,
+      headers,
+      storageProvider,
+      sourcePort
+    );
 
     if (result.success) {
       sendToPort(sourcePort, { type: 'upload_success', fileName });
@@ -323,6 +398,12 @@ function handleMessage(message: MainToWorkerMessage, sourcePort: MessagePort): v
       break;
     }
 
+    case 'update_upload_url': {
+      // Unblock every upload retry on this port waiting for a fresh upload_url
+      resolveUploadUrlWaiters(sourcePort, message.upload);
+      break;
+    }
+
     case 'terminate': {
       // Clean up this port's resources
       const idx = ports.indexOf(sourcePort);
@@ -330,6 +411,8 @@ function handleMessage(message: MainToWorkerMessage, sourcePort: MessagePort): v
         ports.splice(idx, 1);
       }
       pendingUploadsPerPort.delete(sourcePort);
+      // Unblock any upload retries still waiting on a refresh for this port
+      resolveUploadUrlWaiters(sourcePort, null);
       try {
         sourcePort.close();
       } catch {

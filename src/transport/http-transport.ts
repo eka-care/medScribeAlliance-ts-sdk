@@ -47,10 +47,10 @@ export class HttpTransport implements ITransport {
 
   async request<T = any>(config: TransportRequest): Promise<TransportResponse<T>> {
     try {
-      const result = await retryWithBackoff(
-        () => this.executeRequest<T>(config),
-        this.getRetryOptions(config)
-      );
+      // Backoff retry is only for audio uploads; every other request runs once.
+      const result = config.isUpload
+        ? await retryWithBackoff(() => this.executeRequest<T>(config), this.getRetryOptions(config))
+        : await this.executeRequest<T>(config);
       return result;
     } catch (error) {
       if (error instanceof ScribeError) {

@@ -32,6 +32,8 @@ export interface RecorderConfig {
   storageProvider: string;
   uploadHeaders: Record<string, string>;
   sessionId: string;
+  // Fetch a fresh upload payload on upload failure (expired presigned URL); null if unavailable.
+  refreshUploadUrl?: () => Promise<SessionUploadInfo | null>;
 }
 
 export interface IRecorder {

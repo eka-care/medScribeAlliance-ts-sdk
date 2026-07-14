@@ -54,6 +54,11 @@ export class WorkerManager {
   private storageProviderName: string = '';
   private uploadHeaders: Record<string, string> = {};
 
+  // Fetches a fresh upload payload (version-aware getSessionStatus) when an upload fails.
+  private refreshUploadUrl: (() => Promise<SessionUploadInfo | null>) | null = null;
+  // Dedup concurrent refreshes so a burst of failed chunks triggers one getSessionStatus.
+  private inFlightRefresh: Promise<SessionUploadInfo | null> | null = null;
+
   // Track pending main-thread uploads for waitForAllUploads
   private pendingUploads: Set<Promise<void>> = new Set();
 
@@ -106,11 +111,14 @@ export class WorkerManager {
   setUploadConfig(
     upload: SessionUploadInfo,
     storageProvider: string,
-    headers: Record<string, string>
+    headers: Record<string, string>,
+    refreshUploadUrl?: () => Promise<SessionUploadInfo | null>
   ): void {
     this.uploadPayload = upload;
     this.storageProviderName = storageProvider;
     this.uploadHeaders = headers;
+    // getSessionStatus-backed refresher for recovering from an expired presigned URL.
+    this.refreshUploadUrl = refreshUploadUrl ?? null;
     // Validate now — throws UnsupportedStorageProviderError for an unknown provider.
     getStorageProvider(storageProvider);
   }
@@ -311,6 +319,39 @@ export class WorkerManager {
         });
         break;
       }
+
+      case 'upload_url_required': {
+        this.handleUploadUrlRequired();
+        break;
+      }
+    }
+  }
+
+  // Worker asked for a fresh upload_url — refresh and send it back (null → worker keeps current).
+  private async handleUploadUrlRequired(): Promise<void> {
+    const fresh = await this.refreshUploadPayload();
+    this.postToWorker({ type: 'update_upload_url', upload: fresh });
+  }
+
+  // Fetch a fresh upload payload via the injected closure (deduped), cache it as the new default.
+  private async refreshUploadPayload(): Promise<SessionUploadInfo | null> {
+    if (!this.refreshUploadUrl) {
+      return null;
+    }
+    try {
+      if (!this.inFlightRefresh) {
+        this.inFlightRefresh = this.refreshUploadUrl();
+      }
+      const fresh = await this.inFlightRefresh;
+      if (fresh) {
+        this.uploadPayload = fresh;
+      }
+      return fresh;
+    } catch (error) {
+      console.error('[ScribeSDK] Failed to refresh upload_url:', error);
+      return null;
+    } finally {
+      this.inFlightRefresh = null;
     }
   }
 
@@ -359,13 +400,26 @@ export class WorkerManager {
         data: { chunkIndex, fileName, chunkData: encoded.chunks },
       });
 
-      // 3. Build the provider-specific request and send via ITransport.
-      await uploadFileToStorage(this.transport, {
-        fileName,
-        blob: mp3Blob,
-        upload: this.uploadPayload,
-        storageProvider: this.storageProviderName,
-      });
+      // 3. Send via ITransport; on failure, refresh the upload_url once and retry with it.
+      try {
+        await uploadFileToStorage(this.transport, {
+          fileName,
+          blob: mp3Blob,
+          upload: this.uploadPayload,
+          storageProvider: this.storageProviderName,
+        });
+      } catch (uploadError) {
+        const fresh = await this.refreshUploadPayload();
+        if (!fresh) {
+          throw uploadError;
+        }
+        await uploadFileToStorage(this.transport, {
+          fileName,
+          blob: mp3Blob,
+          upload: fresh,
+          storageProvider: this.storageProviderName,
+        });
+      }
 
       // 4. Success — transport.request() throws on failure, so reaching here means success
       this.fileManager.markSuccess(chunkIndex);
