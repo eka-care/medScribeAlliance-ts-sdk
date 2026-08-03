@@ -113,8 +113,20 @@ export class SingleRecorder implements IRecorder {
     }
 
     try {
-      // Wait for MediaRecorder to finish
-      const audioBlob = await this.stopMediaRecorder();
+      // Wait for MediaRecorder to finish.
+      // If stopMediaRecorder fails, salvage any chunks collected so far.
+      let audioBlob: Blob;
+      try {
+        audioBlob = await this.stopMediaRecorder();
+      } catch (stopError) {
+        if (this.audioChunks.length > 0) {
+          const mimeType = this.mediaRecorder?.mimeType || 'audio/webm';
+          audioBlob = new Blob(this.audioChunks, { type: mimeType });
+        } else {
+          throw stopError;
+        }
+      }
+
       const fileName = `1.${this.getFileExtension()}`;
 
       try {
@@ -144,9 +156,6 @@ export class SingleRecorder implements IRecorder {
 
         return { failedUploads: [fileName], totalFiles: 1 };
       }
-    } catch (error) {
-      console.error('[ScribeSDK] Error stopping single recorder:', error);
-      return { failedUploads: [], totalFiles: 0 };
     } finally {
       this.releaseMicStream();
     }

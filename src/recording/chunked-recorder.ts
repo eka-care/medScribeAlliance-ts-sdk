@@ -170,35 +170,36 @@ export class ChunkedRecorder implements IRecorder {
    * 4. Return results
    */
   async stop(): Promise<StopRecordingResult> {
+    this._isPaused = false;
+
+    // Each step is isolated so one failure doesn't prevent the rest.
+
     try {
-      this._isPaused = false;
-
-      // Destroy VAD (stops mic stream, releases resources)
       this.vadClient.destroy();
-
-      // Flush remaining audio in buffer as the last chunk
-      this.flushRemainingAudio();
-
-      // Wait for all pending uploads (including the last chunk)
-      await this.workerManager.waitForAllUploads();
-
-      // If waitForAllUploads resolved via timeout (worker unresponsive),
-      // some chunks may still be 'pending'. Mark them as failed so they
-      // appear in failedUploads and are available for retry.
-      this.fileManager.markPendingAsFailed();
-
-      return {
-        failedUploads: this.fileManager.getFailedUploads(),
-        totalFiles: this.fileManager.getChunkCount(),
-      };
     } catch (error) {
-      console.error('[ScribeSDK] Error stopping chunked recorder:', error);
-      this.fileManager.markPendingAsFailed();
-      return {
-        failedUploads: this.fileManager.getFailedUploads(),
-        totalFiles: this.fileManager.getChunkCount(),
-      };
+      console.error('[ScribeSDK] Error destroying VAD during stop:', error);
     }
+
+    try {
+      this.flushRemainingAudio();
+    } catch (error) {
+      console.error('[ScribeSDK] Error flushing remaining audio:', error);
+    }
+
+    try {
+      await this.workerManager.waitForAllUploads();
+    } catch (error) {
+      console.error('[ScribeSDK] Error waiting for uploads:', error);
+    }
+
+    // Any chunks still 'pending' (e.g. worker timeout) → mark as failed
+    // so they appear in failedUploads and are available for retry.
+    this.fileManager.markPendingAsFailed();
+
+    return {
+      failedUploads: this.fileManager.getFailedUploads(),
+      totalFiles: this.fileManager.getChunkCount(),
+    };
   }
 
   /**

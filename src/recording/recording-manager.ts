@@ -472,6 +472,11 @@ export class RecordingManager {
 
     let sessionEnded = false;
     let endSessionHttpStatus: number | undefined;
+    const result: EndRecordingResult = {
+      failedUploads: [],
+      totalFiles: 0,
+      sessionEnded: false,
+    };
 
     try {
       // 1. Stop recorder — flushes last chunk, waits for all uploads
@@ -503,29 +508,19 @@ export class RecordingManager {
         }
       }
 
-      const result: EndRecordingResult = {
-        failedUploads: currentFailedUploads,
-        totalFiles: stopResult.totalFiles,
-        sessionEnded: false,
-      };
+      result.failedUploads = currentFailedUploads;
+      result.totalFiles = stopResult.totalFiles;
 
       // 4. End session ONLY if every chunk uploaded successfully.
+      //    finalizeSession() throws on failure — error propagates to
+      //    wrapResult() which returns { success: false } to the consumer.
       if (currentFailedUploads.length === 0 && this.activeSession) {
         const finalize = await this.finalizeSession(stopResult.totalFiles, stopResult.totalFiles);
-        if (finalize) {
-          result.sessionEnded = true;
-          result.endSessionResponse = finalize.data;
-          endSessionHttpStatus = finalize.httpStatus;
-          sessionEnded = true;
-        }
+        result.sessionEnded = true;
+        result.endSessionResponse = finalize.data;
+        endSessionHttpStatus = finalize.httpStatus;
+        sessionEnded = true;
       }
-
-      // 5. Dispatch recording ended
-      this.callbackRegistry.dispatch('onRecordingStateChange', {
-        type: RecordingState.ENDED,
-        timestamp: new Date().toISOString(),
-        data: result,
-      });
 
       if (this.config.debug) {
         console.log('[ScribeSDK] Recording stopped:', {
@@ -536,24 +531,15 @@ export class RecordingManager {
       }
 
       return { data: result, httpStatus: endSessionHttpStatus };
-    } catch (error) {
-      console.error('[ScribeSDK] Error stopping recording:', error);
-
-      // Dispatch error so consumers know the stop encountered a problem
-      this.callbackRegistry.dispatch('onError', {
-        type: ErrorEventType.TRANSPORT_ERROR,
+    } finally {
+      // Always dispatch recording ended — the recording DID stop regardless
+      // of whether endSession succeeded or failed.
+      this.callbackRegistry.dispatch('onRecordingStateChange', {
+        type: RecordingState.ENDED,
         timestamp: new Date().toISOString(),
-        error: {
-          code: ErrorCode.STOP_FAILED,
-          message: error instanceof Error ? error.message : 'Failed to stop recording',
-        },
+        data: result,
       });
 
-      return {
-        data: { failedUploads: [], totalFiles: 0, sessionEnded: false },
-        httpStatus: undefined,
-      };
-    } finally {
       // Cleanup:
       // - sessionEnded === true: full cleanup (drop session + retry context).
       // - sessionEnded === false: partial cleanup — release recorder but keep
@@ -569,16 +555,16 @@ export class RecordingManager {
 
   /**
    * End the session, dispatch onSessionEvent, and return the response.
-   * Called from stop() (auto-finalize) and finalizeAfterExternalEndSession()
-   * (consumer-driven). Returns undefined and dispatches onError on failure.
-   * Caller is responsible for cleanup.
+   * Called from stop() after all uploads succeed.
+   * Throws on failure (after dispatching onError) — caller is responsible
+   * for cleanup.
    */
   private async finalizeSession(
     totalFiles: number,
     successfulUploads: number
-  ): Promise<ApiCallResult<EndSessionResponse> | undefined> {
+  ): Promise<ApiCallResult<EndSessionResponse>> {
     if (!this.activeSession) {
-      return undefined;
+      throw new ScribeError('No active session to finalize', ErrorCode.SESSION_END_FAILED);
     }
 
     try {
@@ -608,7 +594,7 @@ export class RecordingManager {
           message: error instanceof Error ? error.message : 'Failed to end session',
         },
       });
-      return undefined;
+      throw error;
     }
   }
 
