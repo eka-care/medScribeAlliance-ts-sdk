@@ -41,7 +41,7 @@ import { DiscoveryManager } from '../discovery/discovery-manager';
 import { ChunkedRecorder } from './chunked-recorder';
 import { SingleRecorder } from './single-recorder';
 import type { WorkerManagerConfig } from '../worker/worker-manager';
-import { ScribeError } from '../utils/errors';
+import { ScribeError, UploadError } from '../utils/errors';
 import { getStorageProvider } from '../storage/storage-provider-factory';
 import { uploadFileToStorage } from '../storage/upload-file';
 import {
@@ -497,6 +497,12 @@ export class RecordingManager {
           currentFailedUploads = retryResult.data.stillFailed;
         } catch (retryError) {
           console.error('[ScribeSDK] Internal retry pass failed:', retryError);
+
+          // UploadError carries the list of files that still failed
+          if (retryError instanceof UploadError) {
+            currentFailedUploads = retryError.failedFiles;
+          }
+
           this.callbackRegistry.dispatch('onError', {
             type: ErrorEventType.TRANSPORT_ERROR,
             timestamp: new Date().toISOString(),
@@ -512,8 +518,7 @@ export class RecordingManager {
       result.totalFiles = stopResult.totalFiles;
 
       // 4. End session ONLY if every chunk uploaded successfully.
-      //    finalizeSession() throws on failure — error propagates to
-      //    wrapResult() which returns { success: false } to the consumer.
+      //    finalizeSession() throws on failure — error propagates to the consumer.
       if (currentFailedUploads.length === 0 && this.activeSession) {
         const finalize = await this.finalizeSession(stopResult.totalFiles, stopResult.totalFiles);
         result.sessionEnded = true;
@@ -532,6 +537,16 @@ export class RecordingManager {
 
       return { data: result, httpStatus: endSessionHttpStatus };
     } finally {
+      // Fallback: if recorder.stop(), capture failed chunks now before
+      // cleanup nulls the recorder.
+      if (this.recorder && !this.retryContext) {
+        try {
+          this.preserveRetryContext();
+        } catch {
+          // Best-effort — don't mask the original error
+        }
+      }
+
       // Always dispatch recording ended — the recording DID stop regardless
       // of whether endSession succeeded or failed.
       this.callbackRegistry.dispatch('onRecordingStateChange', {
@@ -793,8 +808,14 @@ export class RecordingManager {
       console.log(`[ScribeSDK] Retry complete: ${succeeded}/${retried} succeeded`);
     }
 
-    // No single HTTP call for the aggregate retry pass — httpStatus is undefined.
-    return { data: { retried, succeeded, stillFailed }, httpStatus: undefined };
+    if (stillFailed.length > 0) {
+      throw new UploadError(
+        `${stillFailed.length} upload(s) still failed after retry`,
+        stillFailed
+      );
+    }
+
+    return { data: { retried, succeeded, stillFailed: [] }, httpStatus: undefined };
   }
 
   // --- Private ---
@@ -861,7 +882,12 @@ export class RecordingManager {
     sessionId: string,
     version?: string
   ): Promise<SessionUploadInfo | null> {
-    const status = await this.sessionManager.getSessionStatus(baseUrl, sessionId, undefined, version);
+    const status = await this.sessionManager.getSessionStatus(
+      baseUrl,
+      sessionId,
+      undefined,
+      version
+    );
     return status.data.upload_url ?? null;
   }
 
