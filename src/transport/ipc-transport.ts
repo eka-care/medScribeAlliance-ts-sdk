@@ -27,6 +27,7 @@ import {
   SessionNotFoundError,
 } from '../utils/errors';
 import { retryWithBackoff, RetryOptions } from '../utils/retry';
+import { getCurrentTimezone, TIMEZONE_HEADER } from '../utils/timezone';
 import { HttpStatus, ErrorCode } from '../constants';
 import type { IpcResponse } from '../types';
 
@@ -188,7 +189,7 @@ export class IpcTransport implements ITransport {
   private buildHeaders(config: TransportRequest): Record<string, string> {
     const headers: Record<string, string> = {};
 
-    // Presigned uploads authenticate via signed fields — no service auth/flavour.
+    // Presigned uploads authenticate via signed fields — no service auth/flavour/timezone.
     const isExternalUpload = config.isUpload === true && config.attachAuth === false;
 
     if (!config.isUpload) {
@@ -204,6 +205,10 @@ export class IpcTransport implements ITransport {
       }
       if (this.flavour) {
         headers['flavour'] = this.flavour;
+      }
+      const timezone = getCurrentTimezone();
+      if (timezone) {
+        headers[TIMEZONE_HEADER] = timezone;
       }
     }
 

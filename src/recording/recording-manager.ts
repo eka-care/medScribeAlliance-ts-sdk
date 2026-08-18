@@ -38,6 +38,7 @@ import type { ITransport } from '../types/transport';
 import { CallbackRegistry } from '../callbacks/callback-registry';
 import { SessionManager } from '../session/session-manager';
 import { DiscoveryManager } from '../discovery/discovery-manager';
+import { getCurrentTimezone, TIMEZONE_HEADER } from '../utils/timezone';
 import { ChunkedRecorder } from './chunked-recorder';
 import { SingleRecorder } from './single-recorder';
 import type { WorkerManagerConfig } from '../worker/worker-manager';
@@ -863,6 +864,10 @@ export class RecordingManager {
     }
     if (this.config.flavour) {
       headers['flavour'] = this.config.flavour;
+    }
+    const timezone = getCurrentTimezone();
+    if (timezone) {
+      headers[TIMEZONE_HEADER] = timezone;
     }
     return headers;
   }

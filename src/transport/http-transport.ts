@@ -19,6 +19,7 @@ import {
   SessionNotFoundError,
 } from '../utils/errors';
 import { retryWithBackoff, RetryOptions } from '../utils/retry';
+import { getCurrentTimezone, TIMEZONE_HEADER } from '../utils/timezone';
 
 export class HttpTransport implements ITransport {
   private accessToken?: string;
@@ -147,7 +148,7 @@ export class HttpTransport implements ITransport {
   private buildHeaders(config: TransportRequest): Record<string, string> {
     const headers: Record<string, string> = {};
 
-    // Presigned uploads authenticate via signed fields — no service auth/flavour,
+    // Presigned uploads authenticate via signed fields — no service auth/flavour/timezone,
     // and multipart Content-Type is set by fetch (boundary).
     const isExternalUpload = config.isUpload === true && config.attachAuth === false;
 
@@ -164,6 +165,10 @@ export class HttpTransport implements ITransport {
       }
       if (this.flavour) {
         headers['flavour'] = this.flavour;
+      }
+      const timezone = getCurrentTimezone();
+      if (timezone) {
+        headers[TIMEZONE_HEADER] = timezone;
       }
     }
 
