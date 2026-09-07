@@ -5,6 +5,18 @@
 
 import { DiscoveryDocument, ResolvedConfig, ModelConfig } from '../types';
 import { DiscoveryError } from '../utils/errors';
+import { AWS_STORAGE_PROVIDER } from '../storage/resolve-provider';
+
+const DEFAULT_STORAGE_PROVIDERS = [AWS_STORAGE_PROVIDER];
+
+// Trims, lowercases and de-dupes; an absent or empty list falls back to the default.
+function normalizeStorageProviders(capabilities: DiscoveryDocument['capabilities']): string[] {
+  const cleaned = (capabilities.storage_providers ?? [])
+    .filter((name): name is string => typeof name === 'string')
+    .map((name) => name.trim().toLowerCase())
+    .filter((name) => name.length > 0);
+  return cleaned.length > 0 ? Array.from(new Set(cleaned)) : [...DEFAULT_STORAGE_PROVIDERS];
+}
 
 /**
  * Parses a validated DiscoveryDocument into a ResolvedConfig.
@@ -21,6 +33,8 @@ export function resolveConfig(doc: DiscoveryDocument): ResolvedConfig {
       }
     }
 
+    const storageProviders = normalizeStorageProviders(doc.capabilities);
+
     return {
       baseUrl: doc.endpoints.base_url,
       webhooksUrl: doc.endpoints.webhooks_url,
@@ -28,7 +42,7 @@ export function resolveConfig(doc: DiscoveryDocument): ResolvedConfig {
       autoDetectLanguage: doc.languages?.auto_detection ?? false,
       supportedAudioFormats: doc.capabilities.audio_formats,
       supportedUploadMethods: doc.capabilities.upload_methods ?? [],
-      storageProvider: doc.capabilities.storage_provider ?? 'aws',
+      storageProviders,
       maxChunkDurationSeconds: doc.capabilities.max_chunk_duration_seconds,
       maxSessionDurationSeconds,
       supportedAuthMethods: doc.authentication.supported_methods,

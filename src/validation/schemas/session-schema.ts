@@ -65,7 +65,11 @@ export const CreateSessionResponseSchema = z.object({
   status: z.string(),
   created_at: z.string(),
   expires_at: z.string(),
-  upload_url: z.record(z.string(), z.unknown()),
+  upload_url: z.union([
+    z.string().min(1, 'upload_url is required'),
+    z.record(z.string(), z.unknown()),
+  ]),
+  storage_provider: z.string().nullish(),
   patient_details: z
     .object({
       name: z.string().optional(),
