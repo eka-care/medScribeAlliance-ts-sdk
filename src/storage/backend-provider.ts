@@ -1,7 +1,4 @@
-// BackendStorageProvider — uploads audio to the Eka backend instead of direct-to-S3.
-// The upload_url is a plain endpoint string; the filename is appended as a path segment.
-// POST {upload_url}/{fileName} with the raw audio as the body and an audio/* Content-Type.
-// Unlike the presigned S3 path this is a first-party call, so it carries service auth.
+// Uploads audio to the Eka backend instead of direct-to-S3: POST {upload_url}/{fileName}.
 
 import * as z from 'zod';
 import { UploadError } from '../utils/errors';
@@ -12,8 +9,7 @@ const BackendUploadSchema = z.string().trim().min(1, 'upload_url is required');
 const CONTENT_TYPE_HEADER = 'Content-Type';
 const DEFAULT_CONTENT_TYPE = 'audio/mp3';
 
-// Must match the server's allowlist exactly — it compares by string equality and
-// rejects anything else with 400 invalid_audio_format.
+// Exact strings the server allowlists; anything else is a 400 invalid_audio_format.
 const SUPPORTED_CONTENT_TYPES = new Set([
   'audio/webm;codecs=opus',
   'audio/wav',
@@ -33,8 +29,7 @@ const EXTENSION_CONTENT_TYPES: Record<string, string> = {
   mp4: 'audio/mp4',
 };
 
-// Extension first: a browser Blob reports audio/mpeg for mp3 and bare audio/webm for
-// webm, neither of which the server accepts. blob.type is only trusted if allowlisted.
+// Blob.type reports audio/mpeg for mp3 and bare audio/webm, which the server rejects.
 function resolveContentType(fileName: string, blob?: Blob): string {
   const extension = fileName.split('.').pop()?.toLowerCase() ?? '';
   const fromExtension = EXTENSION_CONTENT_TYPES[extension];
@@ -66,6 +61,7 @@ export class BackendStorageProvider implements StorageProvider {
     return {
       url: `${baseUrl}/${encodeURIComponent(fileName)}`,
       method: 'POST',
+      // Raw, not multipart: a single-upload session runs VAD over the request body.
       bodyMode: 'binary',
       headers: { [CONTENT_TYPE_HEADER]: resolveContentType(fileName, blob) },
       attachAuth: true,
