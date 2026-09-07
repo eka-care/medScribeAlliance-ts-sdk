@@ -2,7 +2,7 @@
  * HttpTransport — fetch-based ITransport implementation.
  *
  * - Adds auth headers (API key or Bearer token)
- * - JSON requests for API calls, raw blob for uploads
+ * - JSON for API calls; uploads use the body shape the storage provider declares
  * - Retry logic via retryWithBackoff (1 initial + 2 retries = 3 attempts, 2s delay, skip 4xx)
  * - Maps HTTP errors to typed ScribeError subclasses
  * - Auto-retries on 401 after token refresh (deduplicated across concurrent requests)
@@ -20,14 +20,8 @@ import {
 } from '../utils/errors';
 import { retryWithBackoff, RetryOptions } from '../utils/retry';
 import { getCurrentTimezone, TIMEZONE_HEADER } from '../utils/timezone';
+import { isMultipartUpload } from './upload-body';
 
-// Multipart when the provider says so; falls back to the legacy form-fields check.
-function isMultipartUpload(config: TransportRequest): boolean {
-  if (config.uploadBodyMode) {
-    return config.uploadBodyMode === 'multipart';
-  }
-  return Boolean(config.uploadFormFields);
-}
 
 export class HttpTransport implements ITransport {
   private accessToken?: string;

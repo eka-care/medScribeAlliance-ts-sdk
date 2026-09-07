@@ -28,6 +28,7 @@ import {
 } from '../utils/errors';
 import { retryWithBackoff, RetryOptions } from '../utils/retry';
 import { getCurrentTimezone, TIMEZONE_HEADER } from '../utils/timezone';
+import { isMultipartUpload } from './upload-body';
 import { HttpStatus, ErrorCode } from '../constants';
 import type { IpcResponse } from '../types';
 
@@ -195,7 +196,7 @@ export class IpcTransport implements ITransport {
     if (!config.isUpload) {
       headers['Content-Type'] = 'application/json';
       headers['Accept'] = 'application/json';
-    } else if (!config.uploadFormFields) {
+    } else if (!isMultipartUpload(config)) {
       headers['Content-Type'] = 'audio/mp3';
     }
 
@@ -237,10 +238,11 @@ export class IpcTransport implements ITransport {
       const uint8Array = new Uint8Array(arrayBuffer);
       ipcRequest.blobData = this.uint8ArrayToBase64(uint8Array);
 
-      // FormData can't cross IPC — forward fields so the host builds the multipart.
+      // FormData can't cross IPC — forward the parts so the host builds the multipart.
+      // Fields may be empty (the backend upload sends only a file part).
       // TODO: requires Electron host support for multipart-from-fields uploads.
-      if (config.uploadFormFields) {
-        ipcRequest.uploadFormFields = config.uploadFormFields;
+      if (isMultipartUpload(config)) {
+        ipcRequest.uploadFormFields = config.uploadFormFields ?? {};
         ipcRequest.uploadFileFieldName = config.uploadFileFieldName ?? 'file';
         ipcRequest.uploadFileName = config.uploadFileName;
       }
