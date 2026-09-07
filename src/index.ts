@@ -129,6 +129,11 @@ export {
   getStorageProvider,
   isStorageProviderSupported,
   AwsS3StorageProvider,
+  BackendStorageProvider,
+  resolveStorageProvider,
+  hasUploadPayload,
+  AWS_STORAGE_PROVIDER,
+  BACKEND_STORAGE_PROVIDER,
 } from './storage';
 export type { StorageProvider, UploadContext, PreparedUpload } from './storage';
 
