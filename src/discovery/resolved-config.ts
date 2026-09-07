@@ -39,7 +39,6 @@ export function resolveConfig(doc: DiscoveryDocument): ResolvedConfig {
       supportedAudioFormats: doc.capabilities.audio_formats,
       supportedUploadMethods: doc.capabilities.upload_methods ?? [],
       storageProviders: normalizeStorageProviders(doc.capabilities),
-      storageProvider: DEFAULT_STORAGE_PROVIDER,
       maxChunkDurationSeconds: doc.capabilities.max_chunk_duration_seconds,
       maxSessionDurationSeconds,
       supportedAuthMethods: doc.authentication.supported_methods,

@@ -44,6 +44,7 @@ import { SingleRecorder } from './single-recorder';
 import type { WorkerManagerConfig } from '../worker/worker-manager';
 import { ScribeError, UploadError } from '../utils/errors';
 import { getStorageProvider } from '../storage/storage-provider-factory';
+import { AWS_STORAGE_PROVIDER } from '../storage/resolve-provider';
 import { uploadFileToStorage } from '../storage/upload-file';
 import {
   RecordingState,
@@ -838,13 +839,8 @@ export class RecordingManager {
     );
   }
 
-  /** Storage provider name from discovery; defaults to 'aws'. */
   private getStorageProviderName(): string {
-    try {
-      return this.discoveryManager.getResolvedConfig().storageProvider || 'aws';
-    } catch {
-      return 'aws';
-    }
+    return AWS_STORAGE_PROVIDER;
   }
 
   /** Validate the provider has a wrapper (throws UnsupportedStorageProviderError) and return its name. */

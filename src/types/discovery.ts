@@ -77,7 +77,6 @@ export interface ResolvedConfig {
   supportedAudioFormats: string[];
   supportedUploadMethods: string[];
   storageProviders: string[];
-  storageProvider: string;
   maxChunkDurationSeconds: number;
   /** modelId -> max session duration in seconds */
   maxSessionDurationSeconds: Map<string, number>;
