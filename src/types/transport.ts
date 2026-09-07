@@ -10,8 +10,6 @@ export interface TransportRequest {
   isUpload?: boolean;
   uploadBlob?: Blob;
   uploadFileName?: string;
-  /** Body shape for an upload, from PreparedUpload.bodyMode. Falls back to the form-fields check. */
-  uploadBodyMode?: 'multipart' | 'binary';
   /** Multipart form fields; when set, the request is multipart/form-data with uploadBlob as the file. */
   uploadFormFields?: Record<string, string>;
   /** Multipart field name for the file part. Defaults to 'file'. */
