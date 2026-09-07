@@ -1,5 +1,4 @@
-// The single place that decides which StorageProvider owns a session's upload_url.
-// The create-session response names it: 'aws' for a presigned POST form, absent for a backend URL.
+// Decides which StorageProvider owns a session's upload_url.
 
 import type { SessionUploadInfo } from '../types/session';
 
@@ -14,7 +13,7 @@ export function hasUploadPayload(upload: unknown): upload is SessionUploadInfo {
   return typeof upload === 'object' && upload !== null;
 }
 
-// Prefers the server's storage_provider; else infers from payload shape, as the server does.
+// Prefers the session's storage_provider; else infers from shape, as the server does.
 export function resolveStorageProvider(
   sessionProvider: string | null | undefined,
   upload: SessionUploadInfo | undefined

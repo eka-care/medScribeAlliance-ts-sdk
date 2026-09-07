@@ -1,7 +1,4 @@
-// One rule for "is this upload multipart", shared by every transport.
-// PreparedUpload.bodyMode is authoritative; the form-fields check is the legacy fallback
-// for callers that build a TransportRequest by hand. Keying off formFields alone is wrong:
-// a file-only multipart (backend audio upload) has no fields and would look binary.
+// One multipart rule for every transport: bodyMode wins, form fields are the legacy fallback.
 
 import type { TransportRequest } from '../types/transport';
 
