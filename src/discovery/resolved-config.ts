@@ -6,6 +6,16 @@
 import { DiscoveryDocument, ResolvedConfig, ModelConfig } from '../types';
 import { DiscoveryError } from '../utils/errors';
 
+const DEFAULT_STORAGE_PROVIDER = 'aws';
+
+function normalizeStorageProviders(capabilities: DiscoveryDocument['capabilities']): string[] {
+  const cleaned = (capabilities.storage_providers ?? [])
+    .filter((name): name is string => typeof name === 'string')
+    .map((name) => name.trim().toLowerCase())
+    .filter((name) => name.length > 0);
+  return cleaned.length > 0 ? Array.from(new Set(cleaned)) : [DEFAULT_STORAGE_PROVIDER];
+}
+
 /**
  * Parses a validated DiscoveryDocument into a ResolvedConfig.
  * This is called once after discovery fetch + schema validation.
@@ -28,7 +38,7 @@ export function resolveConfig(doc: DiscoveryDocument): ResolvedConfig {
       autoDetectLanguage: doc.languages?.auto_detection ?? false,
       supportedAudioFormats: doc.capabilities.audio_formats,
       supportedUploadMethods: doc.capabilities.upload_methods ?? [],
-      storageProvider: doc.capabilities.storage_provider ?? 'aws',
+      storageProviders: normalizeStorageProviders(doc.capabilities),
       maxChunkDurationSeconds: doc.capabilities.max_chunk_duration_seconds,
       maxSessionDurationSeconds,
       supportedAuthMethods: doc.authentication.supported_methods,

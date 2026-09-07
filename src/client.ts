@@ -50,6 +50,7 @@ import type {
   UploadAudioFileResult,
 } from './types/recording';
 import { uploadFileToStorage } from './storage/upload-file';
+import { resolveStorageProvider, hasUploadPayload } from './storage/resolve-provider';
 
 export class ScribeClient {
   private config: ScribeSDKConfig;
@@ -257,7 +258,8 @@ export class ScribeClient {
   async uploadAudioFile(
     file: Blob,
     fileName: string,
-    upload: SessionUploadInfo
+    upload: SessionUploadInfo,
+    options?: { storageProvider?: string | null }
   ): Promise<SDKResult<UploadAudioFileResult>> {
     return this.wrapResult(async () => {
       if (!file || file.size === 0) {
@@ -266,16 +268,18 @@ export class ScribeClient {
       if (!fileName || !fileName.trim()) {
         throw new ValidationError('fileName is required');
       }
-      if (!upload || typeof upload !== 'object') {
+      if (!hasUploadPayload(upload)) {
         throw new ValidationError('upload (upload_url payload) is required');
       }
 
-      // Provider comes from discovery (createSession already ran it). Defaults to 'aws'.
       const response = await uploadFileToStorage(this.transport, {
         fileName,
         blob: file,
         upload,
-        storageProvider: this.getStorageProviderName(),
+        storageProvider: resolveStorageProvider(
+          options?.storageProvider ?? this.providerForUpload(upload),
+          upload
+        ),
       });
 
       return {
@@ -361,7 +365,12 @@ export class ScribeClient {
       );
     }
     return this.wrapResult(() =>
-      this.sessionManager.getSessionStatus(baseUrl, sessionId, options?.templateId, options?.version)
+      this.sessionManager.getSessionStatus(
+        baseUrl,
+        sessionId,
+        options?.templateId,
+        options?.version
+      )
     );
   }
 
@@ -643,13 +652,10 @@ export class ScribeClient {
     };
   }
 
-  /** Storage provider name from discovery; defaults to 'aws'. */
-  private getStorageProviderName(): string {
-    try {
-      return this.discoveryManager.getResolvedConfig().storageProvider || 'aws';
-    } catch {
-      return 'aws';
-    }
+  // storage_provider of the active session, but only if this payload is that session's.
+  private providerForUpload(upload: SessionUploadInfo): string | null | undefined {
+    const session = this.sessionManager.getCurrentSession();
+    return session && session.upload_url === upload ? session.storage_provider : undefined;
   }
 
   /**
