@@ -2,7 +2,7 @@
  * HttpTransport — fetch-based ITransport implementation.
  *
  * - Adds auth headers (API key or Bearer token)
- * - JSON for API calls; uploads use the body shape the storage provider declares
+ * - JSON requests for API calls, raw blob for uploads
  * - Retry logic via retryWithBackoff (1 initial + 2 retries = 3 attempts, 2s delay, skip 4xx)
  * - Maps HTTP errors to typed ScribeError subclasses
  * - Auto-retries on 401 after token refresh (deduplicated across concurrent requests)
@@ -20,8 +20,6 @@ import {
 } from '../utils/errors';
 import { retryWithBackoff, RetryOptions } from '../utils/retry';
 import { getCurrentTimezone, TIMEZONE_HEADER } from '../utils/timezone';
-import { isMultipartUpload } from './upload-body';
-
 
 export class HttpTransport implements ITransport {
   private accessToken?: string;
@@ -157,7 +155,7 @@ export class HttpTransport implements ITransport {
     if (!config.isUpload) {
       headers['Content-Type'] = 'application/json';
       headers['Accept'] = 'application/json';
-    } else if (!isMultipartUpload(config)) {
+    } else if (!config.uploadFormFields) {
       headers['Content-Type'] = 'audio/mp3';
     }
 
@@ -192,10 +190,10 @@ export class HttpTransport implements ITransport {
       credentials: isExternalUpload ? 'omit' : 'include',
     };
 
-    if (config.isUpload && isMultipartUpload(config)) {
+    if (config.isUpload && config.uploadFormFields) {
       // Multipart: form fields first, file last.
       const formData = new FormData();
-      for (const [field, value] of Object.entries(config.uploadFormFields ?? {})) {
+      for (const [field, value] of Object.entries(config.uploadFormFields)) {
         formData.append(field, value);
       }
       if (config.uploadBlob) {

@@ -106,9 +106,7 @@ export class ChunkedRecorder implements IRecorder {
    */
   initialize(_session: CreateSessionResponse, config: RecorderConfig): void {
     if (!config.upload || typeof config.upload !== 'object') {
-      throw new Error(
-        'Chunked recording requires a presigned upload payload object, not a URL string.'
-      );
+      throw new Error('Upload payload is required for chunked recording');
     }
     if (!config.storageProvider) {
       throw new Error('Storage provider is required for chunked recording');

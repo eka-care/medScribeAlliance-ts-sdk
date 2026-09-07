@@ -14,7 +14,6 @@ import type { ITransport } from '../types/transport';
 import { CallbackRegistry } from '../callbacks/callback-registry';
 import { ErrorEventType, ErrorCode, UploadEventType } from '../constants';
 import { getStorageProvider } from '../storage/storage-provider-factory';
-import { hasUploadPayload } from '../storage/resolve-provider';
 import { uploadFileToStorage } from '../storage/upload-file';
 
 export class SingleRecorder implements IRecorder {
@@ -40,7 +39,7 @@ export class SingleRecorder implements IRecorder {
    * Configure recorder with session details (upload URL, headers).
    */
   initialize(_session: CreateSessionResponse, config: RecorderConfig): void {
-    if (!hasUploadPayload(config.upload)) {
+    if (!config.upload || typeof config.upload !== 'object') {
       throw new Error('Upload payload is required for single recording');
     }
     if (!config.storageProvider) {

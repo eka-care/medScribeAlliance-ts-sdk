@@ -140,10 +140,9 @@ function buildUploadInit(
   }
 
   let body: BodyInit;
-  // Fields may be empty — a file-only multipart is still multipart.
-  if (prepared.bodyMode === 'multipart') {
+  if (prepared.bodyMode === 'multipart' && prepared.formFields) {
     const formData = new FormData();
-    for (const [field, value] of Object.entries(prepared.formFields ?? {})) {
+    for (const [field, value] of Object.entries(prepared.formFields)) {
       formData.append(field, value);
     }
     formData.append(prepared.fileFieldName ?? 'file', blob, fileName);

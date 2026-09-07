@@ -37,7 +37,6 @@ export async function uploadFileToStorage(
     url: prepared.url,
     headers: prepared.headers,
     isUpload: true,
-    uploadBodyMode: prepared.bodyMode,
     uploadBlob: params.blob,
     uploadFormFields: prepared.formFields,
     uploadFileFieldName: prepared.fileFieldName,
