@@ -1,5 +1,4 @@
 /**
- * Maps a provider name to its wrapper class.
  * The single place mapping a provider name to its wrapper class.
  */
 

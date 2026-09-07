@@ -277,7 +277,7 @@ export class ScribeClient {
         blob: file,
         upload,
         storageProvider: resolveStorageProvider(
-          options?.storageProvider ?? this.sessionManager.getCurrentSession()?.storage_provider,
+          options?.storageProvider ?? this.providerForUpload(upload),
           upload
         ),
       });
@@ -650,6 +650,12 @@ export class ScribeClient {
       forceMainThread: false,
       workerScriptUrl: this.config.workerScriptUrl,
     };
+  }
+
+  // storage_provider of the active session, but only if this payload is that session's.
+  private providerForUpload(upload: SessionUploadInfo): string | null | undefined {
+    const session = this.sessionManager.getCurrentSession();
+    return session && session.upload_url === upload ? session.storage_provider : undefined;
   }
 
   /**

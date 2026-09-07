@@ -7,7 +7,7 @@ import * as z from 'zod';
 import { UploadError } from '../utils/errors';
 import type { StorageProvider, UploadContext, PreparedUpload } from './storage-provider.interface';
 
-const BackendUploadSchema = z.string().min(1, 'upload_url is required');
+const BackendUploadSchema = z.string().trim().min(1, 'upload_url is required');
 
 const CONTENT_TYPE_HEADER = 'Content-Type';
 const DEFAULT_CONTENT_TYPE = 'audio/mp3';
@@ -44,7 +44,7 @@ export class BackendStorageProvider implements StorageProvider {
       );
     }
 
-    const baseUrl = parsed.data.trim().replace(/\/+$/, '');
+    const baseUrl = parsed.data.replace(/\/+$/, '');
 
     return {
       url: `${baseUrl}/${encodeURIComponent(fileName)}`,

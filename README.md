@@ -198,7 +198,7 @@ await client.reset(); // stops recording if active, clears all state and caches
 - **`cancelSession()` does NOT trigger processing.** It stops the recorder locally, cleans up state, and tells the server the session is cancelled. No `endSession` call is made to the backend.
 - **All async methods return `SDKResult<T>`, never throw.** Always check `result.success` before accessing `result.data`. Errors are in `result.error`.
 - **The SDK validates inputs against the discovery document.** If the server doesn't support an upload type, language, or model you requested, you'll get a `ValidationError` before the API call is made.
-- **Audio uploads go to a server-selected storage backend.** Discovery's `capabilities.storage_provider` (default `aws`) decides the backend; uploads go directly to it (e.g. S3 presigned POST). 
+- **Audio uploads go to a server-selected storage backend.** The create-session response decides it: `storage_provider: "aws"` with an `upload_url` object means a direct S3 presigned POST; an `upload_url` string means the audio is posted to the backend endpoint instead. Discovery's `capabilities.storage_providers` only advertises which backends the deployment can mint URLs for. 
 
 - **SharedWorker is optional.** If you provide `workerScriptUrl`, the SDK offloads MP3 compression and upload to a SharedWorker. If the worker fails to load, it silently falls back to main-thread processing.
 - **Microphone permission is requested on `startRecording()`.** The browser will prompt the user for mic access. If denied, you'll get an error via `onError` callback.
@@ -628,7 +628,7 @@ console.log(result.data.session_id);
 | `TransportError` | — | Network / IPC failure |
 | `WorkerError` | — | SharedWorker failure |
 | `UploadError` | — | Audio upload failure (failed transfer, or malformed `upload_url` payload). Has `failedFiles: string[]`. |
-| `UnsupportedStorageProviderError` | — | Discovery advertised a `storage_provider` this SDK build has no wrapper for. Thrown at `startRecording`. Has `provider: string`. |
+| `UnsupportedStorageProviderError` | — | The session's `storage_provider` names a backend this SDK build has no wrapper for. Thrown at `startRecording`. Has `provider: string`. |
 
 ## SharedWorker Support
 
