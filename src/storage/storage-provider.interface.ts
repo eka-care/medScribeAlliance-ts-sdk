@@ -24,7 +24,7 @@ export interface PreparedUpload {
 }
 
 export interface StorageProvider {
-  /** Matches discovery's `capabilities.storage_provider`. */
+  // Matches a name from discovery's capabilities.storage_providers.
   readonly name: string;
   /** @throws UploadError if the upload payload is malformed. */
   prepareUpload(ctx: UploadContext): PreparedUpload;
