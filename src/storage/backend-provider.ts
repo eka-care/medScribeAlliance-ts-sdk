@@ -1,6 +1,6 @@
 // BackendStorageProvider — uploads audio to the Eka backend instead of direct-to-S3.
 // The upload_url is a plain endpoint string; the filename is appended as a path segment.
-// POST {upload_url}/{fileName} with the raw audio as the body and an audio/* Content-Type.
+// POST {upload_url}/{fileName} as multipart/form-data with the audio in the "file" field.
 // Unlike the presigned S3 path this is a first-party call, so it carries service auth.
 
 import * as z from 'zod';
@@ -9,7 +9,7 @@ import type { StorageProvider, UploadContext, PreparedUpload } from './storage-p
 
 const BackendUploadSchema = z.string().trim().min(1, 'upload_url is required');
 
-const CONTENT_TYPE_HEADER = 'Content-Type';
+const FILE_FIELD_NAME = 'file';
 const DEFAULT_CONTENT_TYPE = 'audio/mp3';
 
 // Must match the server's allowlist exactly — it compares by string equality and
@@ -66,8 +66,10 @@ export class BackendStorageProvider implements StorageProvider {
     return {
       url: `${baseUrl}/${encodeURIComponent(fileName)}`,
       method: 'POST',
-      bodyMode: 'binary',
-      headers: { [CONTENT_TYPE_HEADER]: resolveContentType(fileName, blob) },
+      bodyMode: 'multipart',
+      fileFieldName: FILE_FIELD_NAME,
+      // No Content-Type — fetch must set it so the multipart boundary is included.
+      headers: {},
       attachAuth: true,
     };
   }

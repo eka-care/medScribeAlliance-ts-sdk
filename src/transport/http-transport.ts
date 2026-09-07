@@ -21,6 +21,14 @@ import {
 import { retryWithBackoff, RetryOptions } from '../utils/retry';
 import { getCurrentTimezone, TIMEZONE_HEADER } from '../utils/timezone';
 
+// Multipart when the provider says so; falls back to the legacy form-fields check.
+function isMultipartUpload(config: TransportRequest): boolean {
+  if (config.uploadBodyMode) {
+    return config.uploadBodyMode === 'multipart';
+  }
+  return Boolean(config.uploadFormFields);
+}
+
 export class HttpTransport implements ITransport {
   private accessToken?: string;
   private flavour?: string;
@@ -155,7 +163,7 @@ export class HttpTransport implements ITransport {
     if (!config.isUpload) {
       headers['Content-Type'] = 'application/json';
       headers['Accept'] = 'application/json';
-    } else if (!config.uploadFormFields) {
+    } else if (!isMultipartUpload(config)) {
       headers['Content-Type'] = 'audio/mp3';
     }
 
@@ -190,10 +198,10 @@ export class HttpTransport implements ITransport {
       credentials: isExternalUpload ? 'omit' : 'include',
     };
 
-    if (config.isUpload && config.uploadFormFields) {
+    if (config.isUpload && isMultipartUpload(config)) {
       // Multipart: form fields first, file last.
       const formData = new FormData();
-      for (const [field, value] of Object.entries(config.uploadFormFields)) {
+      for (const [field, value] of Object.entries(config.uploadFormFields ?? {})) {
         formData.append(field, value);
       }
       if (config.uploadBlob) {
