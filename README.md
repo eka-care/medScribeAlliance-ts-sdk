@@ -390,7 +390,7 @@ interface RecordingOptions {
 | `isRecordingPaused()` | `boolean` | Whether the active recording is paused. |
 | `retryFailedUploads()` | `SDKResult<RetryUploadResult>` | Retry uploads that failed during the last recording. |
 | `hasFailedUploads()` | `boolean` | Whether there are retryable failed uploads. |
-| `uploadAudioFile(file, fileName, upload)` | `SDKResult<UploadAudioFileResult>` | Upload one pre-recorded audio file to storage using a session's `upload_url`. No mic/recorder. |
+| `uploadAudioFile(file, fileName, upload, options?)` | `SDKResult<UploadAudioFileResult>` | Upload one pre-recorded audio file using a session's `upload_url` (string or presigned object). No mic/recorder. The provider is taken from the session's `storage_provider`, or inferred from the payload shape; `options.storageProvider` overrides both. |
 
 ### Session
 

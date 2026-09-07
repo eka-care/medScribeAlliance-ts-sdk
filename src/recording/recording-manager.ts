@@ -845,7 +845,7 @@ export class RecordingManager {
     return resolveStorageProvider(active?.storage_provider, active?.upload_url);
   }
 
-  // Validate the provider has a wrapper (throws UnsupportedStorageProviderError) and return its name.
+  // Validate the provider has a wrapper (throws UnsupportedStorageProviderError), then return it.
   private resolveStorageProviderName(session?: CreateSessionResponse | null): string {
     const name = this.getStorageProviderName(session);
     getStorageProvider(name);

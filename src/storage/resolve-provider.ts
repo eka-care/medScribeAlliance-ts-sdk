@@ -14,7 +14,7 @@ export function hasUploadPayload(upload: unknown): upload is SessionUploadInfo {
   return typeof upload === 'object' && upload !== null;
 }
 
-// Uses the server's storage_provider; falls back to the payload shape, which is the same rule the server applies.
+// Prefers the server's storage_provider; else infers from payload shape, as the server does.
 export function resolveStorageProvider(
   sessionProvider: string | null | undefined,
   upload: SessionUploadInfo | undefined
