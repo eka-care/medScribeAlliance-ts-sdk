@@ -127,6 +127,8 @@ export {
 // --- Storage providers (pluggable upload backends) ---
 export {
   getStorageProvider,
+  BackendStorageProvider,
+  resolveStorageProvider,
   isStorageProviderSupported,
   AwsS3StorageProvider,
 } from './storage';

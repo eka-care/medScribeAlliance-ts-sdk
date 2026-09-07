@@ -1,15 +1,16 @@
 /**
- * Resolves a StorageProvider from discovery's `capabilities.storage_provider`.
+ * Maps a provider name to its wrapper class.
  * The single place mapping a provider name to its wrapper class.
  */
 
 import { AwsS3StorageProvider } from './aws-s3-provider';
 import { UnsupportedStorageProviderError } from '../utils/errors';
 import type { StorageProvider } from './storage-provider.interface';
+import { BackendStorageProvider } from './backend-provider';
 
-// TODO: add other providers here, e.g. gcp: () => new GcpStorageProvider().
 const PROVIDER_REGISTRY: Record<string, () => StorageProvider> = {
   aws: () => new AwsS3StorageProvider(),
+  backend: () => new BackendStorageProvider(),
 };
 
 function normalize(name: string): string {

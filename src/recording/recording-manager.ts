@@ -44,6 +44,7 @@ import { SingleRecorder } from './single-recorder';
 import type { WorkerManagerConfig } from '../worker/worker-manager';
 import { ScribeError, UploadError } from '../utils/errors';
 import { getStorageProvider } from '../storage/storage-provider-factory';
+import { resolveStorageProvider } from '../storage/resolve-provider';
 import { uploadFileToStorage } from '../storage/upload-file';
 import {
   RecordingState,
@@ -183,7 +184,7 @@ export class RecordingManager {
       // Fail fast on an unsupported provider before touching the mic/VAD.
       let storageProvider: string;
       try {
-        storageProvider = this.resolveStorageProviderName();
+        storageProvider = this.resolveStorageProviderName(session);
       } catch (error) {
         if (gen === this._startGeneration) {
           this.cleanupRecordingState();
@@ -322,7 +323,7 @@ export class RecordingManager {
       // Fail fast on an unsupported provider before touching the mic/VAD.
       let storageProvider: string;
       try {
-        storageProvider = this.resolveStorageProviderName();
+        storageProvider = this.resolveStorageProviderName(session);
       } catch (error) {
         if (gen === this._startGeneration) {
           this.cleanupRecordingState();
@@ -838,18 +839,15 @@ export class RecordingManager {
     );
   }
 
-  /** Storage provider name from discovery; defaults to 'aws'. */
-  private getStorageProviderName(): string {
-    try {
-      return this.discoveryManager.getResolvedConfig().storageProvider || 'aws';
-    } catch {
-      return 'aws';
-    }
+  // Provider for a session's upload_url — the session response is authoritative.
+  private getStorageProviderName(session?: CreateSessionResponse | null): string {
+    const active = session ?? this.activeSession;
+    return resolveStorageProvider(active?.storage_provider, active?.upload_url);
   }
 
-  /** Validate the provider has a wrapper (throws UnsupportedStorageProviderError) and return its name. */
-  private resolveStorageProviderName(): string {
-    const name = this.getStorageProviderName();
+  // Validate the provider has a wrapper (throws UnsupportedStorageProviderError) and return its name.
+  private resolveStorageProviderName(session?: CreateSessionResponse | null): string {
+    const name = this.getStorageProviderName(session);
     getStorageProvider(name);
     return name;
   }
@@ -957,7 +955,7 @@ export class RecordingManager {
 
     this.retryContext = {
       upload: this.activeSession.upload_url,
-      storageProvider: this.getStorageProviderName(),
+      storageProvider: this.getStorageProviderName(this.activeSession),
       failedChunks,
     };
 

@@ -25,8 +25,8 @@ export interface CreateSessionRequest {
   session_id?: string;
 }
 
-/** Provider-specific upload payload; validated/interpreted by the StorageProvider, not the session schema. */
-export type SessionUploadInfo = Record<string, unknown>;
+// Provider-specific upload payload; interpreted by the StorageProvider
+export type SessionUploadInfo = string | Record<string, unknown>;
 
 export interface CreateSessionResponse {
   session_id: string;
@@ -34,6 +34,7 @@ export interface CreateSessionResponse {
   created_at: string;
   expires_at: string;
   upload_url: SessionUploadInfo;
+  storage_provider?: string | null;
   patient_details?: PatientDetails;
 }
 
