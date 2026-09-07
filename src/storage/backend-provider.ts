@@ -1,6 +1,9 @@
 // BackendStorageProvider — uploads audio to the Eka backend instead of direct-to-S3.
 // The upload_url is a plain endpoint string; the filename is appended as a path segment.
-// POST {upload_url}/{fileName} as multipart/form-data with the audio in the "file" field.
+// POST {upload_url}/{fileName} with the audio in a multipart "file" field.
+// Content-Type is set explicitly to an audio/* value, matching the request the backend
+// team verified. Setting it means fetch does NOT append a boundary, so the server reads
+// the whole envelope as the raw body — the same shape their `curl --form` produces.
 // Unlike the presigned S3 path this is a first-party call, so it carries service auth.
 
 import * as z from 'zod';
@@ -10,48 +13,15 @@ import type { StorageProvider, UploadContext, PreparedUpload } from './storage-p
 const BackendUploadSchema = z.string().trim().min(1, 'upload_url is required');
 
 const FILE_FIELD_NAME = 'file';
-const DEFAULT_CONTENT_TYPE = 'audio/mp3';
 
-// Must match the server's allowlist exactly — it compares by string equality and
-// rejects anything else with 400 invalid_audio_format.
-const SUPPORTED_CONTENT_TYPES = new Set([
-  'audio/webm;codecs=opus',
-  'audio/wav',
-  'audio/ogg',
-  'audio/ogg;codecs=opus',
-  'audio/mp4',
-  'audio/m4a',
-  'audio/mp3',
-]);
-
-const EXTENSION_CONTENT_TYPES: Record<string, string> = {
-  mp3: 'audio/mp3',
-  webm: 'audio/webm;codecs=opus',
-  wav: 'audio/wav',
-  ogg: 'audio/ogg',
-  m4a: 'audio/m4a',
-  mp4: 'audio/mp4',
-};
-
-// Extension first: a browser Blob reports audio/mpeg for mp3 and bare audio/webm for
-// webm, neither of which the server accepts. blob.type is only trusted if allowlisted.
-function resolveContentType(fileName: string, blob?: Blob): string {
-  const extension = fileName.split('.').pop()?.toLowerCase() ?? '';
-  const fromExtension = EXTENSION_CONTENT_TYPES[extension];
-  if (fromExtension) {
-    return fromExtension;
-  }
-  const blobType = blob?.type;
-  if (blobType && SUPPORTED_CONTENT_TYPES.has(blobType)) {
-    return blobType;
-  }
-  return DEFAULT_CONTENT_TYPE;
-}
+// The endpoint only checks this starts with 'audio/' and is on its allowlist; it does not
+// have to describe the actual codec. Matches the backend team's verified request.
+const UPLOAD_CONTENT_TYPE = 'audio/webm;codecs=opus';
 
 export class BackendStorageProvider implements StorageProvider {
   readonly name = 'backend';
 
-  prepareUpload({ fileName, blob, upload }: UploadContext): PreparedUpload {
+  prepareUpload({ fileName, upload }: UploadContext): PreparedUpload {
     const parsed = BackendUploadSchema.safeParse(upload);
 
     if (!parsed.success) {
@@ -68,8 +38,7 @@ export class BackendStorageProvider implements StorageProvider {
       method: 'POST',
       bodyMode: 'multipart',
       fileFieldName: FILE_FIELD_NAME,
-      // No Content-Type — fetch must set it so the multipart boundary is included.
-      headers: {},
+      headers: { 'Content-Type': UPLOAD_CONTENT_TYPE },
       attachAuth: true,
     };
   }
