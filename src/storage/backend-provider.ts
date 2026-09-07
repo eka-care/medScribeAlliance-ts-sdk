@@ -12,23 +12,40 @@ const BackendUploadSchema = z.string().trim().min(1, 'upload_url is required');
 const CONTENT_TYPE_HEADER = 'Content-Type';
 const DEFAULT_CONTENT_TYPE = 'audio/mp3';
 
+// Must match the server's allowlist exactly — it compares by string equality and
+// rejects anything else with 400 invalid_audio_format.
+const SUPPORTED_CONTENT_TYPES = new Set([
+  'audio/webm;codecs=opus',
+  'audio/wav',
+  'audio/ogg',
+  'audio/ogg;codecs=opus',
+  'audio/mp4',
+  'audio/m4a',
+  'audio/mp3',
+]);
+
 const EXTENSION_CONTENT_TYPES: Record<string, string> = {
   mp3: 'audio/mp3',
-  webm: 'audio/webm',
+  webm: 'audio/webm;codecs=opus',
   wav: 'audio/wav',
   ogg: 'audio/ogg',
   m4a: 'audio/m4a',
   mp4: 'audio/mp4',
 };
 
-// The endpoint rejects a non-audio Content-Type, so fall back to the extension.
+// Extension first: a browser Blob reports audio/mpeg for mp3 and bare audio/webm for
+// webm, neither of which the server accepts. blob.type is only trusted if allowlisted.
 function resolveContentType(fileName: string, blob?: Blob): string {
+  const extension = fileName.split('.').pop()?.toLowerCase() ?? '';
+  const fromExtension = EXTENSION_CONTENT_TYPES[extension];
+  if (fromExtension) {
+    return fromExtension;
+  }
   const blobType = blob?.type;
-  if (blobType && blobType.startsWith('audio/')) {
+  if (blobType && SUPPORTED_CONTENT_TYPES.has(blobType)) {
     return blobType;
   }
-  const extension = fileName.split('.').pop()?.toLowerCase() ?? '';
-  return EXTENSION_CONTENT_TYPES[extension] ?? DEFAULT_CONTENT_TYPE;
+  return DEFAULT_CONTENT_TYPE;
 }
 
 export class BackendStorageProvider implements StorageProvider {
